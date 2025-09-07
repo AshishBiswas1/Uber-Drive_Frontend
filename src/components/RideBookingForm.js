@@ -1,6 +1,6 @@
 // src/components/RideBookingForm.js
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function RideBookingForm() {
   const [mounted, setMounted] = useState(false);
@@ -18,36 +18,40 @@ export default function RideBookingForm() {
     setMounted(true);
   }, []);
 
+  // Mobile device detection helper
+  const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
+
   // Validate if coordinates are within India
   const isValidIndianCoords = (lat, lng) => {
-    // India's approximate boundaries
-    const minLat = 6.4627;   // Southernmost point
-    const maxLat = 37.6;     // Northernmost point  
-    const minLng = 68.1766;  // Westernmost point
-    const maxLng = 97.4025;  // Easternmost point
-    
+    const minLat = 6.4627;
+    const maxLat = 37.6;
+    const minLng = 68.1766;
+    const maxLng = 97.4025;
     return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
   };
 
-  // Enhanced geocoding with better validation
-  const geocodeAddressOSM = async (address, retryCount = 0) => {
+  // Enhanced geocoding using proxy API
+  const geocodeAddressOSM = useCallback(async (address, retryCount = 0) => {
     if (!address || address.length < 3) {
       return null;
     }
 
+    const controller = new AbortController();
+    const timeoutMs = 10000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      // First try with India bias
-      const enhancedAddress = address.includes('India') ? address : `${address}, India`;
-      const encodedAddress = encodeURIComponent(enhancedAddress);
-      
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&addressdetails=1&limit=5&countrycodes=in`,
-        {
-          headers: {
-            'User-Agent': 'RideFlexPro/1.0'
-          }
+      // Use our proxy API instead of direct Nominatim call
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(address)}`, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
         }
-      );
+      });
+
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -55,8 +59,11 @@ export default function RideBookingForm() {
       
       const data = await response.json();
 
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       if (data && data.length > 0) {
-        // Find the best Indian result
         for (const location of data) {
           const lat = parseFloat(location.lat);
           const lng = parseFloat(location.lon);
@@ -67,100 +74,88 @@ export default function RideBookingForm() {
               lng,
               display_name: location.display_name
             });
-            
             return { lat, lng, display_name: location.display_name };
           }
         }
       }
 
-      // If no good Indian results, try without country filter
-      if (retryCount === 0) {
-        console.log(`No valid Indian results for "${address}", trying global search`);
-        
-        const globalResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&addressdetails=1&limit=3`,
-          {
-            headers: {
-              'User-Agent': 'RideFlexPro/1.0'
-            }
-          }
-        );
-        
-        const globalData = await globalResponse.json();
-        
-        if (globalData && globalData.length > 0) {
-          // Still prefer Indian coordinates even in global search
-          for (const location of globalData) {
-            const lat = parseFloat(location.lat);
-            const lng = parseFloat(location.lon);
-            
-            if (isValidIndianCoords(lat, lng)) {
-              console.log(`✓ Found Indian location in global search for "${address}":`, {
-                lat,
-                lng,
-                display_name: location.display_name
-              });
-              return { lat, lng, display_name: location.display_name };
-            }
-          }
-          
-          // If no Indian coords found, take first result but warn
-          const location = globalData[0];
-          const lat = parseFloat(location.lat);
-          const lng = parseFloat(location.lon);
-          
-          console.warn(`⚠️ Using non-Indian coordinates for "${address}":`, {
-            lat,
-            lng,
-            display_name: location.display_name
-          });
-          
-          return { lat, lng, display_name: location.display_name };
-        }
-      }
-
-      console.warn(`❌ No results found for address: ${address}`);
+      console.warn(`❌ No valid results found for address: ${address}`);
       return null;
       
     } catch (error) {
-      console.error(`❌ Geocoding error for "${address}":`, error);
+      clearTimeout(timeoutId);
       
-      if (retryCount < 1) {
-        console.log(`🔄 Retrying geocoding for: ${address}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (error.name === 'AbortError') {
+        console.error(`⏱️ Request timeout for "${address}"`);
+      } else {
+        console.error(`🌐 Geocoding error for "${address}":`, error.message);
+      }
+      
+      // Retry logic with exponential backoff
+      if (retryCount < 2) {
+        const delay = Math.pow(2, retryCount) * 2000; // 2s, 4s, 8s
+        console.log(`🔄 Retrying geocoding for: ${address} in ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
         return geocodeAddressOSM(address, retryCount + 1);
       }
       
       return null;
     }
-  };
+  }, []);
 
+  // Update reverse geocoding to use proxy
   const reverseGeocodeOSM = async (lat, lng) => {
+    const fallbackLocation = `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    
+    // Skip reverse geocoding on mobile to avoid issues
+    if (isMobileDevice()) {
+      console.log('Mobile detected - using coordinate-based location');
+      return fallbackLocation;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`,
-        {
-          headers: {
-            'User-Agent': 'RideFlexPro/1.0'
-          }
+      const response = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
         }
-      );
+      });
+
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        return fallbackLocation;
+      }
+
       const data = await response.json();
 
-      if (data && data.display_name) {
-        return data.display_name;
-      } else {
-        return `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      if (data.error) {
+        return fallbackLocation;
       }
+
+      if (data && data.display_name) {
+        const cleanAddress = data.display_name
+          .split(',')
+          .slice(0, 3)
+          .join(', ')
+          .trim();
+        
+        return cleanAddress || fallbackLocation;
+      }
+      
+      return fallbackLocation;
     } catch (error) {
-      console.error('Reverse geocoding error:', error);
-      return `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      clearTimeout(timeoutId);
+      console.warn('Reverse geocoding error via proxy:', error.message);
+      return fallbackLocation;
     }
   };
 
-  // Improved Haversine distance calculation with validation
+  // Distance calculation remains the same
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    // Validate all inputs
     if (typeof lat1 !== 'number' || typeof lon1 !== 'number' || 
         typeof lat2 !== 'number' || typeof lon2 !== 'number') {
       console.error('Invalid coordinate types:', { lat1, lon1, lat2, lon2 });
@@ -172,7 +167,7 @@ export default function RideBookingForm() {
       return 0;
     }
 
-    const R = 6371; // Earth's radius in kilometers
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     
@@ -184,7 +179,6 @@ export default function RideBookingForm() {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const distance = R * c;
 
-    // Additional validation
     if (isNaN(distance) || !isFinite(distance)) {
       console.error('Invalid distance calculated:', distance);
       return 0;
@@ -193,14 +187,13 @@ export default function RideBookingForm() {
     return distance;
   };
 
-  const calculateTotalDistance = () => {
+  const calculateTotalDistance = useCallback(() => {
     if (!pickupCoords || !dropCoords) {
       setTotalDistance(null);
       setTotalDuration(null);
       return;
     }
 
-    // Validate pickup and drop coordinates
     if (!pickupCoords.lat || !pickupCoords.lng || !dropCoords.lat || !dropCoords.lng) {
       console.error('Invalid pickup or drop coordinates:', { pickupCoords, dropCoords });
       setTotalDistance('Error');
@@ -215,7 +208,6 @@ export default function RideBookingForm() {
     console.log('📍 Starting distance calculation:');
     console.log('Pickup:', currentCoords);
     
-    // Add distances through stops
     for (let i = 0; i < stopCoords.length; i++) {
       const stopCoord = stopCoords[i];
       if (stopCoord && stopCoord.lat && stopCoord.lng) {
@@ -236,7 +228,6 @@ export default function RideBookingForm() {
       }
     }
     
-    // Add distance from last stop (or pickup if no stops) to drop
     const finalDistance = calculateDistance(
       currentCoords.lat, currentCoords.lng,
       dropCoords.lat, dropCoords.lng
@@ -254,7 +245,6 @@ export default function RideBookingForm() {
     console.log('📊 Distance calculation summary:', segments);
     console.log(`🎯 Total distance: ${totalDist.toFixed(2)}km`);
 
-    // Enhanced sanity check with detailed logging
     if (totalDist > 1000) {
       console.error('🚨 Total distance seems too large, check coordinates:', {
         pickup: pickupCoords,
@@ -264,7 +254,6 @@ export default function RideBookingForm() {
         totalDistance: totalDist
       });
       
-      // Check if any coordinates are outside India
       const coords = [pickupCoords, ...stopCoords, dropCoords];
       coords.forEach((coord, index) => {
         if (coord && !isValidIndianCoords(coord.lat, coord.lng)) {
@@ -285,9 +274,10 @@ export default function RideBookingForm() {
     }
 
     setTotalDistance(totalDist.toFixed(2));
-    setTotalDuration(Math.ceil((totalDist / 30) * 60)); // 30 km/h average speed
-  };
+    setTotalDuration(Math.ceil((totalDist / 30) * 60));
+  }, [pickupCoords, dropCoords, stopCoords]);
 
+  // Enhanced geolocation with better mobile handling
   const getCurrentLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -295,6 +285,13 @@ export default function RideBookingForm() {
     }
 
     setIsLoadingLocation(true);
+
+    const isMobile = isMobileDevice();
+    const options = {
+      enableHighAccuracy: true,
+      timeout: isMobile ? 20000 : 15000,
+      maximumAge: isMobile ? 600000 : 300000
+    };
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -306,7 +303,8 @@ export default function RideBookingForm() {
           setPickupCoords({ lat: latitude, lng: longitude });
         } catch (error) {
           console.error('Error getting address:', error);
-          setPickupLocation(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+          const fallbackAddress = `Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+          setPickupLocation(fallbackAddress);
           setPickupCoords({ lat: latitude, lng: longitude });
         } finally {
           setIsLoadingLocation(false);
@@ -318,58 +316,58 @@ export default function RideBookingForm() {
         
         switch(error.code) {
           case error.PERMISSION_DENIED:
-            errorMessage = 'Location access denied. Please enable location permissions.';
+            errorMessage = 'Location access denied. Please enable location permissions in your browser settings.';
             break;
           case error.POSITION_UNAVAILABLE:
-            errorMessage = 'Location information unavailable.';
+            errorMessage = 'Location information unavailable. Please try again.';
             break;
           case error.TIMEOUT:
-            errorMessage = 'Location request timed out.';
+            errorMessage = 'Location request timed out. Please try again or enter your address manually.';
             break;
         }
         
         alert(errorMessage);
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000
-      }
+      options
     );
   };
 
   // Enhanced debounced geocoding
   useEffect(() => {
+    const timeoutMs = isMobileDevice() ? 3000 : 2000;
     const handler = setTimeout(async () => {
       if (pickupLocation && !pickupLocation.includes('Current Location')) {
         console.log('🔍 Geocoding pickup location:', pickupLocation);
         const coords = await geocodeAddressOSM(pickupLocation);
         setPickupCoords(coords);
       }
-    }, 1500);
+    }, timeoutMs);
 
     return () => clearTimeout(handler);
-  }, [pickupLocation]);
+  }, [pickupLocation, geocodeAddressOSM]);
 
   useEffect(() => {
+    const timeoutMs = isMobileDevice() ? 3000 : 2000;
     const handler = setTimeout(async () => {
       if (dropLocation) {
         console.log('🔍 Geocoding drop location:', dropLocation);
         const coords = await geocodeAddressOSM(dropLocation);
         setDropCoords(coords);
       }
-    }, 1500);
+    }, timeoutMs);
 
     return () => clearTimeout(handler);
-  }, [dropLocation]);
+  }, [dropLocation, geocodeAddressOSM]);
 
-  // Geocode stops
+  // Geocode stops with mobile optimizations
   useEffect(() => {
     const geocodeStops = async () => {
       const coords = await Promise.all(
         stops.map(async (stop, index) => {
           if (stop && stop.trim()) {
             console.log(`🔍 Geocoding stop ${index + 1}:`, stop);
+            const delay = isMobileDevice() ? index * 750 : index * 500;
+            await new Promise(resolve => setTimeout(resolve, delay));
             const result = await geocodeAddressOSM(stop);
             return result;
           }
@@ -380,16 +378,17 @@ export default function RideBookingForm() {
     };
 
     if (stops.some(stop => stop.trim())) {
-      const handler = setTimeout(geocodeStops, 1500);
+      const timeoutMs = isMobileDevice() ? 3000 : 2000;
+      const handler = setTimeout(geocodeStops, timeoutMs);
       return () => clearTimeout(handler);
     } else {
       setStopCoords([]);
     }
-  }, [stops]);
+  }, [stops, geocodeAddressOSM]);
 
   useEffect(() => {
     calculateTotalDistance();
-  }, [pickupCoords, dropCoords, stopCoords]);
+  }, [calculateTotalDistance]);
 
   const handlePickupInputClick = () => {
     if (!pickupLocation) {
@@ -584,7 +583,6 @@ export default function RideBookingForm() {
         Select Car
       </button>
       
-      {/* Enhanced debug info */}
       {process.env.NODE_ENV === 'development' && (
         <div className="text-xs text-gray-400 mt-2 p-3 bg-gray-800 rounded">
           <p><strong>Pickup:</strong> {pickupCoords ? `${pickupCoords.lat.toFixed(4)}, ${pickupCoords.lng.toFixed(4)}` : 'None'}</p>

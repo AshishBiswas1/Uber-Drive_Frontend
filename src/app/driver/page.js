@@ -54,6 +54,7 @@ export default function DriverPage() {
     city: '',
     termsAccepted: false
   });
+  const [errors, setErrors] = useState({});
 
   // Ensure component only renders on client after hydration
   useEffect(() => {
@@ -66,11 +67,74 @@ export default function DriverPage() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    }
+    
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    }
+    
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
+    } else if (!/^\+?[\d\s\-\(\)]{10,}$/.test(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number';
+    }
+    
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email address is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    
+    if (!formData.city) {
+      newErrors.city = 'Please select your city';
+    }
+    
+    if (!formData.termsAccepted) {
+      newErrors.termsAccepted = 'You must accept the terms and conditions';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('Form submitted:', formData);
+    if (validateForm()) {
+      console.log('Form submitted:', formData);
+      alert('Application submitted successfully! We&apos;ll contact you within 24 hours.');
+      // Reset form
+      setFormData({
+        firstName: '',
+        lastName: '',
+        phone: '',
+        email: '',
+        city: '',
+        termsAccepted: false
+      });
+    }
+  };
+
+  const isFormValid = () => {
+    return formData.firstName.trim() && 
+           formData.lastName.trim() && 
+           formData.phone.trim() && 
+           formData.email.trim() && 
+           formData.city && 
+           formData.termsAccepted;
   };
 
   // Show loading state during hydration
@@ -190,69 +254,97 @@ export default function DriverPage() {
             </div>
           </section>
 
-          {/* Signup form - Only render after client hydration */}
+          {/* Signup form - Enhanced with validation */}
           <section id="signup" className="card mt-6 p-8">
             <h2 className="text-2xl font-semibold">Start your application</h2>
             <p className="mt-2 text-[15px] text-[color:var(--muted)]">
-              Takes 5 minutes to complete. You'll hear back within 24 hours.
+              Takes 5 minutes to complete. You&apos;ll hear back within 24 hours.
             </p>
             
             <form onSubmit={handleSubmit} className="mt-6 grid grid-cols-1 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground">First name</label>
+                <label className="block text-sm font-medium text-foreground">First name *</label>
                 <input
                   type="text"
                   name="firstName"
                   value={formData.firstName}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`mt-1 block w-full rounded-lg border px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:outline-none focus:ring-1 ${
+                    errors.firstName 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-white/10 bg-black/20 focus:border-primary focus:ring-primary'
+                  }`}
                   placeholder="Enter your first name"
                   suppressHydrationWarning
                 />
+                {errors.firstName && <p className="mt-1 text-sm text-red-500">{errors.firstName}</p>}
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-foreground">Last name</label>
+                <label className="block text-sm font-medium text-foreground">Last name *</label>
                 <input
                   type="text"
                   name="lastName"
                   value={formData.lastName}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`mt-1 block w-full rounded-lg border px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:outline-none focus:ring-1 ${
+                    errors.lastName 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-white/10 bg-black/20 focus:border-primary focus:ring-primary'
+                  }`}
                   placeholder="Enter your last name"
                   suppressHydrationWarning
                 />
+                {errors.lastName && <p className="mt-1 text-sm text-red-500">{errors.lastName}</p>}
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-foreground">Phone number</label>
+                <label className="block text-sm font-medium text-foreground">Phone number *</label>
                 <input
                   type="tel"
                   name="phone"
                   value={formData.phone}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`mt-1 block w-full rounded-lg border px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:outline-none focus:ring-1 ${
+                    errors.phone 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-white/10 bg-black/20 focus:border-primary focus:ring-primary'
+                  }`}
                   placeholder="+91 98765 43210"
                   suppressHydrationWarning
                 />
+                {errors.phone && <p className="mt-1 text-sm text-red-500">{errors.phone}</p>}
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-foreground">Email address</label>
+                <label className="block text-sm font-medium text-foreground">Email address *</label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`mt-1 block w-full rounded-lg border px-3 py-2 text-foreground placeholder-[color:var(--muted)] focus:outline-none focus:ring-1 ${
+                    errors.email 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-white/10 bg-black/20 focus:border-primary focus:ring-primary'
+                  }`}
                   placeholder="your.email@example.com"
                   suppressHydrationWarning
                 />
+                {errors.email && <p className="mt-1 text-sm text-red-500">{errors.email}</p>}
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-foreground">City</label>
+                <label className="block text-sm font-medium text-foreground">City *</label>
                 <select
                   name="city"
                   value={formData.city}
                   onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`mt-1 block w-full rounded-lg border px-3 py-2 text-foreground focus:outline-none focus:ring-1 ${
+                    errors.city 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-white/10 bg-black/20 focus:border-primary focus:ring-primary'
+                  }`}
                   suppressHydrationWarning
                 >
                   <option value="">Select your city</option>
@@ -262,6 +354,7 @@ export default function DriverPage() {
                   <option value="pune">Pune</option>
                   <option value="hyderabad">Hyderabad</option>
                 </select>
+                {errors.city && <p className="mt-1 text-sm text-red-500">{errors.city}</p>}
               </div>
               
               <div>
@@ -275,17 +368,23 @@ export default function DriverPage() {
                     suppressHydrationWarning
                   />
                   <span className="text-sm text-[color:var(--muted)]">
-                    I agree to the <a href="#" className="text-primary hover:underline">Terms of Service</a> and <a href="#" className="text-primary hover:underline">Privacy Policy</a>
+                    I agree to the <a href="#" className="text-primary hover:underline">Terms of Service</a> and <a href="#" className="text-primary hover:underline">Privacy Policy</a> *
                   </span>
                 </label>
+                {errors.termsAccepted && <p className="mt-1 text-sm text-red-500">{errors.termsAccepted}</p>}
               </div>
               
               <div>
                 <button
                   type="submit"
-                  className="btn btn-primary w-full"
+                  disabled={!isFormValid()}
+                  className={`w-full rounded-lg px-4 py-3 font-semibold transition-all ${
+                    isFormValid()
+                      ? 'bg-primary text-white hover:bg-primary/90 focus:ring-2 focus:ring-primary/50'
+                      : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  }`}
                 >
-                  Submit Application
+                  {isFormValid() ? 'Submit Application' : 'Complete Required Fields'}
                 </button>
               </div>
             </form>

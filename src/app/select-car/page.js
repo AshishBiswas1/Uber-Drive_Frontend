@@ -1,7 +1,7 @@
 // src/app/select-car/page.js
 'use client';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 function CarOption({ 
@@ -52,7 +52,7 @@ function CarOption({
   );
 }
 
-// Map component placeholder - replace with your map implementation
+// Map component placeholder
 function RouteMapComponent({ pickup, drop, stops, distance, duration }) {
   return (
     <div className="h-full w-full bg-gray-800 rounded-lg flex flex-col">
@@ -66,14 +66,12 @@ function RouteMapComponent({ pickup, drop, stops, distance, duration }) {
           <div className="text-4xl mb-4">🗺️</div>
           <p className="text-gray-400 mb-4">Interactive map with route</p>
           
-          {/* Route details */}
           <div className="space-y-2 text-sm text-gray-300 text-left max-w-xs">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500"></div>
               <span className="truncate">From: {pickup}</span>
             </div>
             
-            {/* Show stops */}
             {stops && stops.map((stop, index) => (
               <div key={index} className="flex items-center gap-2 ml-4">
                 <div className="w-2 h-2 rounded-full bg-blue-500"></div>
@@ -89,7 +87,6 @@ function RouteMapComponent({ pickup, drop, stops, distance, duration }) {
         </div>
       </div>
       
-      {/* Route stats */}
       <div className="p-4 border-t border-white/10">
         <div className="grid grid-cols-2 gap-4 text-center text-sm">
           <div>
@@ -111,7 +108,8 @@ function RouteMapComponent({ pickup, drop, stops, distance, duration }) {
   );
 }
 
-export default function SelectCarPage() {
+// Separate component that uses useSearchParams
+function SelectCarContent() {
   const searchParams = useSearchParams();
   const [selectedCar, setSelectedCar] = useState('flex');
   const [tripDetails, setTripDetails] = useState({
@@ -123,7 +121,6 @@ export default function SelectCarPage() {
   });
 
   useEffect(() => {
-    // Get trip details from URL params including stops and updated distance
     const stopsParam = searchParams.get('stops');
     let parsedStops = [];
     
@@ -138,8 +135,8 @@ export default function SelectCarPage() {
       pickup: searchParams.get('pickup') || 'Current Location',
       drop: searchParams.get('drop') || 'Destination',
       stops: parsedStops,
-      distance: searchParams.get('totalDistance') || '0', // Use totalDistance from URL
-      duration: searchParams.get('totalDuration') || '0'   // Use totalDuration from URL
+      distance: searchParams.get('totalDistance') || '0',
+      duration: searchParams.get('totalDuration') || '0'
     });
   }, [searchParams]);
 
@@ -188,7 +185,7 @@ export default function SelectCarPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col lg:flex-row">
+    <>
       {/* Left Half - Car Selection */}
       <div className="w-full lg:w-1/2 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-6 md:p-10">
@@ -209,7 +206,6 @@ export default function SelectCarPage() {
                 <span className="font-medium">{tripDetails.pickup || 'Pickup location'}</span>
               </div>
               
-              {/* Show stops */}
               {tripDetails.stops && tripDetails.stops.map((stop, index) => (
                 <div key={index} className="flex items-center gap-2 ml-6">
                   <div className="w-3 h-3 rounded-full bg-blue-500"></div>
@@ -277,7 +273,7 @@ export default function SelectCarPage() {
               Book {carOptions.find(car => car.id === selectedCar)?.title} - {carOptions.find(car => car.id === selectedCar)?.price}
             </button>
             <p className="text-center text-xs text-[color:var(--muted)] mt-2">
-              Total trip distance: {tripDetails.distance} km • You'll be charged after completion
+              Total trip distance: {tripDetails.distance} km • You&apos;ll be charged after completion
             </p>
           </div>
         </div>
@@ -295,6 +291,55 @@ export default function SelectCarPage() {
           />
         </div>
       </div>
+    </>
+  );
+}
+
+// Loading component for Suspense fallback
+function SelectCarLoading() {
+  return (
+    <div className="min-h-screen bg-background text-foreground flex flex-col lg:flex-row">
+      <div className="w-full lg:w-1/2 overflow-y-auto">
+        <div className="max-w-2xl mx-auto p-6 md:p-10">
+          <div className="animate-pulse space-y-6">
+            <div className="h-8 bg-gray-300 rounded w-1/3"></div>
+            <div className="card p-6">
+              <div className="h-6 bg-gray-300 rounded w-1/2 mb-4"></div>
+              <div className="space-y-3">
+                <div className="h-4 bg-gray-300 rounded"></div>
+                <div className="h-4 bg-gray-300 rounded w-3/4"></div>
+                <div className="h-4 bg-gray-300 rounded w-1/2"></div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="h-20 bg-gray-300 rounded"></div>
+              <div className="h-20 bg-gray-300 rounded"></div>
+              <div className="h-20 bg-gray-300 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen lg:sticky lg:top-0">
+        <div className="h-full p-4">
+          <div className="h-full bg-gray-800 rounded-lg flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-4xl mb-4">🗺️</div>
+              <p className="text-gray-400">Loading map...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function SelectCarPage() {
+  return (
+    <main className="min-h-screen bg-background text-foreground flex flex-col lg:flex-row">
+      <Suspense fallback={<SelectCarLoading />}>
+        <SelectCarContent />
+      </Suspense>
     </main>
   );
 }

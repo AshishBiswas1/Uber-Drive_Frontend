@@ -186,7 +186,7 @@ export default function RiderPage() {
                     <span key={i} className="text-yellow-400">★</span>
                   ))}
                 </div>
-                <p className="text-[color:var(--muted)] text-sm mb-3">"{review.text}"</p>
+                <p className="text-[color:var(--muted)] text-sm mb-3">&quot;{review.text}&quot;</p>
                 <p className="text-sm font-semibold">{review.name}</p>
                 <p className="text-xs text-[color:var(--muted)]">{review.location}</p>
               </div>

@@ -5,19 +5,19 @@ import Link from "next/link";
 function CheckItem({ children }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="mt-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-foreground/10 text-foreground">✓</span>
-      <span className="text-[15px] text-[color:var(--muted)]">{children}</span>
+      <span className="mt-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-gray-900/10 text-gray-900">✓</span>
+      <span className="text-[15px] text-gray-600">{children}</span>
     </li>
   );
 }
 
 function Testimonial({ quote, name, role }) {
   return (
-    <figure className="rounded-xl border border-white/5 bg-black/20 p-6">
-      <blockquote className="text-[15px] text-[color:var(--muted)] leading-relaxed">"{quote}"</blockquote>
-      <figcaption className="mt-4 text-sm text-foreground">
+    <figure className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <blockquote className="text-[15px] text-gray-600 leading-relaxed">&quot;{quote}&quot;</blockquote>
+      <figcaption className="mt-4 text-sm text-gray-900">
         <span className="font-semibold">{name}</span>
-        <span className="text-[color:var(--muted)]"> • {role}</span>
+        <span className="text-gray-500"> • {role}</span>
       </figcaption>
     </figure>
   );
@@ -25,23 +25,23 @@ function Testimonial({ quote, name, role }) {
 
 function PriceCard({ title, price, cta, features, highlight = false }) {
   return (
-    <div className={`rounded-2xl p-6 border ${highlight ? "border-foreground/20 bg-foreground/5" : "border-white/5 bg-black/20"}`}>
-      <h3 className="text-lg font-semibold">{title}</h3>
+    <div className={`rounded-2xl p-6 border ${highlight ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"} shadow-sm`}>
+      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
       <div className="mt-3 flex items-baseline gap-1">
-        <span className="text-3xl font-extrabold">{price}</span>
-        <span className="text-sm text-[color:var(--muted)]">/trip</span>
+        <span className="text-3xl font-extrabold text-gray-900">{price}</span>
+        <span className="text-sm text-gray-500">/trip</span>
       </div>
       <ul className="mt-4 space-y-2">
         {features.map((f) => (
-          <li key={f} className="flex items-start gap-2 text-[15px] text-[color:var(--muted)]">
-            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-foreground/60" />
+          <li key={f} className="flex items-start gap-2 text-[15px] text-gray-600">
+            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
             <span>{f}</span>
           </li>
         ))}
       </ul>
       <Link
         href="/rider"
-        className={`mt-6 inline-flex w-full justify-center rounded-lg px-4 py-2 font-semibold ${highlight ? "bg-foreground text-background" : "border border-white/10 hover:bg-white/5"}`}
+        className={`mt-6 inline-flex w-full justify-center rounded-lg px-4 py-2 font-semibold transition-colors ${highlight ? "bg-gray-900 text-white hover:bg-gray-800" : "border border-gray-300 text-gray-800 hover:bg-gray-50"}`}
       >
         {cta}
       </Link>
@@ -51,19 +51,20 @@ function PriceCard({ title, price, cta, features, highlight = false }) {
 
 export default function OverviewPage() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="min-h-screen bg-gray-50 text-gray-900">
       {/* Container */}
       <div className="mx-auto max-w-6xl p-6 md:p-10">
         {/* Header / Nav breadcrumbs */}
         <div className="mb-6 flex items-center gap-3">
-          <span className="badge">Security</span>
-          <span className="badge">Less wait</span>
+          <span className="badge bg-gray-100 text-gray-600 border-gray-300">Security</span>
+          <span className="badge bg-gray-100 text-gray-600 border-gray-300">Less wait</span>
         </div>
+
         {/* Hero card */}
-        <div className="card grid grid-cols-1 gap-10 p-8 md:grid-cols-2 md:p-12">
+        <div className="card grid grid-cols-1 gap-10 p-8 md:grid-cols-2 md:p-12 hero-card">
           {/* Phone preview */}
           <div className="order-2 md:order-1">
-            <div className="relative mx-auto h-[420px] w-[320px] md:h-[460px] md:w-[350px]">
+            <div className="relative mx-auto h-[420px] w-[320px] md:h-[460px] md:w-[350px] hero-image-container">
               <Image
                 src="/assets/preview-phone.png"
                 alt="RideFlex Pro app preview"
@@ -75,23 +76,24 @@ export default function OverviewPage() {
             </div>
           </div>
           {/* Copy + CTAs */}
-          <div className="order-1 md:order-2 self-center">
-            <h1 className="text-5xl md:text-6xl font-extrabold leading-tight">
+          <div className="order-1 md:order-2 self-center hero-content">
+            <h1 className="text-5xl md:text-6xl font-extrabold leading-tight text-gray-900 hero-title">
               RideFlex<br />Pro
             </h1>
-            <p className="mt-4 max-w-md text-[15px] text-[color:var(--muted)]">
+            <p className="mt-4 max-w-md text-[15px] text-gray-600 hero-description">
               Smarter rides for riders and flexible earnings for drivers—reliable, safe, and fast. Built with live tracking, upfront pricing, and 24/7 in‑app support.
             </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <Link href="/driver" className="btn btn-primary">Driver</Link>
-              <Link href="/rider" className="btn btn-danger">Rider</Link>
+            <div className="mt-8 flex flex-wrap gap-4 hero-buttons">
+              <Link href="/driver" className="btn bg-gray-900 text-white hover:bg-gray-800">Driver</Link>
+              <Link href="/rider" className="btn btn-primary">Rider</Link>
             </div>
           </div>
         </div>
+
         {/* Features grid */}
         <div className="card mt-6 grid grid-cols-1 gap-10 p-8 md:grid-cols-2 md:p-12">
           <div>
-            <h2 className="text-2xl font-semibold">For drivers</h2>
+            <h2 className="text-2xl font-semibold text-gray-900">For drivers</h2>
             <ul className="mt-5 space-y-3">
               <CheckItem>Hands‑off onboarding</CheckItem>
               <CheckItem>Short waiting times</CheckItem>
@@ -100,7 +102,7 @@ export default function OverviewPage() {
             </ul>
           </div>
           <div>
-            <h2 className="text-2xl font-semibold">For riders</h2>
+            <h2 className="text-2xl font-semibold text-gray-900">For riders</h2>
             <ul className="mt-5 space-y-3">
               <CheckItem>Real‑time trip monitoring</CheckItem>
               <CheckItem>In‑app support</CheckItem>
@@ -109,13 +111,14 @@ export default function OverviewPage() {
             </ul>
           </div>
           {/* Footer row badges */}
-          <div className="col-span-full mt-2 grid grid-cols-2 gap-6 text-center text-[13px] text-[color:var(--muted)] md:grid-cols-4">
-            <div className="rounded-lg bg-black/20 px-4 py-3">Faster pickup</div>
-            <div className="rounded-lg bg-black/20 px-4 py-3">24/7 watch</div>
-            <div className="rounded-lg bg-black/20 px-4 py-3">Verified</div>
-            <div className="rounded-lg bg-black/20 px-4 py-3">Secure</div>
+          <div className="col-span-full mt-2 grid grid-cols-2 gap-6 text-center text-[13px] text-gray-500 md:grid-cols-4">
+            <div className="rounded-lg bg-gray-100 px-4 py-3 border border-gray-200">Faster pickup</div>
+            <div className="rounded-lg bg-gray-100 px-4 py-3 border border-gray-200">24/7 watch</div>
+            <div className="rounded-lg bg-gray-100 px-4 py-3 border border-gray-200">Verified</div>
+            <div className="rounded-lg bg-gray-100 px-4 py-3 border border-gray-200">Secure</div>
           </div>
         </div>
+
         {/* Testimonials */}
         <section className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
           <Testimonial
@@ -134,10 +137,11 @@ export default function OverviewPage() {
             role="Rider • Delhi"
           />
         </section>
+
         {/* Pricing (example trip fees) */}
         <section className="card mt-6 p-8">
-          <h2 className="text-2xl font-semibold">Simple pricing</h2>
-          <p className="mt-2 text-[15px] text-[color:var(--muted)]">
+          <h2 className="text-2xl font-semibold text-gray-900">Simple pricing</h2>
+          <p className="mt-2 text-[15px] text-gray-600">
             Only pay for completed trips. No hidden fees.
           </p>
           <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -162,11 +166,12 @@ export default function OverviewPage() {
             />
           </div>
         </section>
+
         {/* Top 5 Reviews */}
         <section className="card mt-6 p-8">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Top reviews</h2>
-            <a href="/reviews" className="text-sm text-[color:var(--muted)] hover:underline">
+            <h2 className="text-2xl font-semibold text-gray-900">Top reviews</h2>
+            <a href="/reviews" className="text-sm text-gray-500 hover:text-gray-700 hover:underline">
               See all
             </a>
           </div>
@@ -203,11 +208,11 @@ export default function OverviewPage() {
                 text: "App is fast and responsive. Driver arrived early; fare was exactly as quoted.",
               },
             ].map((r) => (
-              <article key={r.name} className="rounded-2xl border border-white/5 bg-black/20 p-6">
+              <article key={r.name} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                 <header className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-semibold">{r.name}</h3>
-                    <p className="text-xs text-[color:var(--muted)]">{r.role}</p>
+                    <h3 className="text-base font-semibold text-gray-900">{r.name}</h3>
+                    <p className="text-xs text-gray-500">{r.role}</p>
                   </div>
                   {/* Accessible star rating */}
                   <div className="flex items-center" aria-label={`${r.rating} out of 5 stars`} role="img">
@@ -215,7 +220,7 @@ export default function OverviewPage() {
                       <svg
                         key={i}
                         viewBox="0 0 20 20"
-                        className={`h-4 w-4 ${i < r.rating ? "text-yellow-400" : "text-white/20"}`}
+                        className={`h-4 w-4 ${i < r.rating ? "text-yellow-400" : "text-gray-300"}`}
                         aria-hidden="true"
                       >
                         <path
@@ -226,15 +231,16 @@ export default function OverviewPage() {
                     ))}
                   </div>
                 </header>
-                <p className="mt-3 text-[15px] leading-relaxed text-[color:var(--muted)]">"{r.text}"</p>
+                <p className="mt-3 text-[15px] leading-relaxed text-gray-600">&quot;{r.text}&quot;</p>
               </article>
             ))}
           </div>
         </section>
+
         {/* FAQ (simple disclosure without extra libs) */}
         <section className="card mt-6 p-8">
-          <h2 className="text-2xl font-semibold">FAQ</h2>
-          <div className="mt-4 divide-y divide-white/5">
+          <h2 className="text-2xl font-semibold text-gray-900">FAQ</h2>
+          <div className="mt-4 divide-y divide-gray-200">
             {[
               {
                 q: "How are fares calculated?",
@@ -246,31 +252,32 @@ export default function OverviewPage() {
               },
               {
                 q: "When do drivers get paid?",
-                a: "Earnings are settled to the driver's account automatically with daily summaries and payout controls.",
+                a: "Earnings are settled to the driver&apos;s account automatically with daily summaries and payout controls.",
               },
             ].map(({ q, a }) => (
               <details key={q} className="group py-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] text-foreground">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] text-gray-900 hover:text-gray-700">
                   {q}
-                  <span className="ml-4 rounded-md border border-white/10 px-2 py-0.5 text-[12px] text-[color:var(--muted)] group-open:rotate-180 transition">
+                  <span className="ml-4 rounded-md border border-gray-300 px-2 py-0.5 text-[12px] text-gray-500 group-open:rotate-180 transition">
                     ▼
                   </span>
                 </summary>
-                <p className="mt-2 text-[15px] text-[color:var(--muted)]">{a}</p>
+                <p className="mt-2 text-[15px] text-gray-600">{a}</p>
               </details>
             ))}
           </div>
         </section>
       </div>
+
       {/* Sticky footer CTA */}
-      <div className="sticky bottom-0 z-30 border-t border-white/10 bg-[color:var(--panel)]/90 backdrop-blur supports-[backdrop-filter]:bg-[color:var(--panel)]/70">
+      <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-          <p className="hidden text-[13px] text-[color:var(--muted)] md:block">
+          <p className="hidden text-[13px] text-gray-600 md:block">
             Ready to ride or drive with RideFlex Pro?
           </p>
           <div className="ml-auto flex gap-3">
-            <Link href="/driver" className="btn btn-primary">Become a Driver</Link>
-            <Link href="/rider" className="btn btn-danger">Book a Ride</Link>
+            <Link href="/driver" className="btn bg-gray-900 text-white hover:bg-gray-800">Become a Driver</Link>
+            <Link href="/rider" className="btn btn-primary">Book a Ride</Link>
           </div>
         </div>
       </div>
