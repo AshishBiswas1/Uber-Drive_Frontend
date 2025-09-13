@@ -9,13 +9,16 @@ class OutdoorGPSService {
     this.locationCache = new Map();
     this.isLaptop = null;
     this.lastPositionTime = null;
-    this.targetAccuracy = 50;
-    this.maxAcceptableAccuracy = 100;
+    this.targetAccuracy = 50; // Accept up to 50m for outdoor GPS
+    this.maxAcceptableAccuracy = 100; // Reject anything worse than 100m
     
     // LocationIQ configuration (FREE 5,000 requests/day)
     this.locationiqKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
   }
 
+  /**
+   * Detect if running on laptop/desktop vs mobile (only on client side)
+   */
   detectLaptop() {
     if (this.isLaptop !== null) {
       return this.isLaptop;
@@ -40,6 +43,9 @@ class OutdoorGPSService {
     }
   }
 
+  /**
+   * Calculate distance between two points in meters
+   */
   calculateDistance(lat1, lng1, lat2, lng2) {
     const R = 6371e3;
     const φ1 = lat1 * Math.PI / 180;
@@ -55,6 +61,9 @@ class OutdoorGPSService {
     return R * c;
   }
 
+  /**
+   * Validate if coordinates are within India
+   */
   isValidIndianCoords(lat, lng) {
     const minLat = 6.4627;
     const maxLat = 37.6;
@@ -257,7 +266,9 @@ class OutdoorGPSService {
     return fallback;
   }
 
-  // ... (keep all your existing GPS methods unchanged)
+  /**
+   * Strict validation - only accept high accuracy GPS
+   */
   isPositionValid(position) {
     if (!position || !position.coords) {
       return { valid: false, reason: 'No coordinates provided' };
@@ -279,6 +290,7 @@ class OutdoorGPSService {
       return { valid: false, reason: 'Invalid accuracy value' };
     }
 
+    // Strict accuracy requirements for outdoor GPS
     if (accuracy > this.maxAcceptableAccuracy) {
       return { 
         valid: false, 
@@ -295,6 +307,9 @@ class OutdoorGPSService {
     return { valid: true, reason: `${quality} - Outdoor GPS successful` };
   }
 
+  /**
+   * High-accuracy outdoor GPS only
+   */
   async getOutdoorGPS() {
     return new Promise((resolve, reject) => {
       if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -302,11 +317,9 @@ class OutdoorGPSService {
         return;
       }
 
-      console.log('🛰️ Attempting outdoor GPS (high accuracy only)...');
-
       const timeoutId = setTimeout(() => {
         reject(new Error('GPS_TIMEOUT: Could not get accurate GPS signal within 45 seconds. Please ensure you are outdoors with clear sky visibility.'));
-      }, 45000);
+      }, 45000); // 45 seconds for GPS satellites
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -316,23 +329,18 @@ class OutdoorGPSService {
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
 
-          console.log(`📡 GPS Response: ±${accuracy}m at ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-
           const validation = this.isPositionValid(position);
           
           if (validation.valid) {
-            console.log(`✅ Outdoor GPS Success: ${validation.reason}`);
             this.currentPosition = position;
             this.lastPositionTime = Date.now();
             resolve(position);
           } else {
-            console.warn(`❌ GPS Rejected: ${validation.reason}`);
             reject(new Error(`GPS_POOR_ACCURACY: ${validation.reason}`));
           }
         },
         (error) => {
           clearTimeout(timeoutId);
-          console.error(`❌ GPS Failed:`, error.message);
           
           let errorMessage = 'GPS_ERROR: ';
           switch (error.code) {
@@ -351,29 +359,28 @@ class OutdoorGPSService {
           reject(new Error(errorMessage));
         },
         {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 40000
+          enableHighAccuracy: true,   // Force GPS satellites only
+          maximumAge: 0,              // No cached positions
+          timeout: 40000              // 40 seconds for satellites
         }
       );
     });
   }
 
+  /**
+   * Main positioning method - outdoor GPS or manual entry prompt
+   */
   async getCurrentPosition() {
     try {
-      console.log('🎯 Outdoor GPS Service: Attempting high-accuracy positioning...');
       const position = await this.getOutdoorGPS();
       return position;
     } catch (error) {
-      console.warn('🏠 Outdoor GPS failed, requiring manual entry:', error.message);
-      throw error;
+      throw error; // Let the UI handle the manual entry prompt
     }
   }
 
   async getCurrentPositionWithName(context = 'general') {
     try {
-      console.log('🎯 Outdoor GPS Service: Getting high-accuracy position with name');
-      
       const position = await this.getCurrentPosition();
       const locationName = await this.getLocationName(
         position.coords.latitude, 
@@ -394,8 +401,9 @@ class OutdoorGPSService {
     }
   }
 
-  // ... (keep all other existing methods - startWatching, stopWatching, etc.)
-
+  /**
+   * Start watching position - only for high accuracy outdoor GPS
+   */
   startWatching(callback) {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       callback(null, new Error('Geolocation not supported'));
@@ -452,6 +460,7 @@ class OutdoorGPSService {
       this.startContinuousWatch();
       
     } catch (error) {
+      // Pass error to UI instead of console logging
       this.callbacks.forEach(cb => {
         try {
           cb(null, error);
@@ -460,7 +469,7 @@ class OutdoorGPSService {
         }
       });
 
-      console.log('❌ Skipping continuous watch due to poor GPS accuracy');
+      // Don't log to console - let UI handle the message
     }
   }
 
@@ -469,6 +478,7 @@ class OutdoorGPSService {
       return;
     }
 
+    // Only watch if we have good initial position
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
         const validation = this.isPositionValid(position);
@@ -487,16 +497,30 @@ class OutdoorGPSService {
             });
           }
         } else {
-          console.warn('📡 Continuous GPS accuracy dropped, maintaining last good position');
+          // Send validation error to UI instead of console
+          this.callbacks.forEach(cb => {
+            try {
+              cb(null, new Error(validation.reason));
+            } catch (err) {
+              // Silent error handling
+            }
+          });
         }
       },
       (error) => {
-        console.warn('📡 Continuous GPS error:', error.message);
+        // Send error to UI instead of console
+        this.callbacks.forEach(cb => {
+          try {
+            cb(null, error);
+          } catch (err) {
+            // Silent error handling
+          }
+        });
       },
       {
-        enableHighAccuracy: true,
-        maximumAge: 30000,
-        timeout: 20000
+        enableHighAccuracy: true,   // High accuracy for continuous watching
+        maximumAge: 30000,          // 30-second cache for continuous updates
+        timeout: 20000              // 20-second timeout for continuous updates
       }
     );
   }
@@ -508,14 +532,17 @@ class OutdoorGPSService {
     const currentAccuracy = this.currentPosition.coords.accuracy;
     const timeDiff = newPosition.timestamp - this.currentPosition.timestamp;
 
+    // Only accept if accuracy is good enough
     if (newAccuracy > this.maxAcceptableAccuracy) {
       return false;
     }
 
+    // Accept if significantly more accurate
     if (newAccuracy < currentAccuracy * 0.7) {
       return true;
     }
 
+    // Accept if reasonably newer and not much worse
     if (timeDiff > 60000 && newAccuracy < currentAccuracy * 1.2) {
       return true;
     }

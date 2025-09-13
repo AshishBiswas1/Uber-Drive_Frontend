@@ -1,4 +1,5 @@
 // src/app/layout.js
+// TODO: Use the GPS to get correct coordinates
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "../components/Navbar";

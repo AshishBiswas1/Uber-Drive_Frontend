@@ -1,12 +1,15 @@
-// src/app/authentication/login/page.js
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation'; // 1. Import the router
 
 export default function LoginPage() {
+  const router = useRouter(); // Initialize the router
+
+  // 2. Set the initial state with your default email and password
   const [formData, setFormData] = useState({
-    email: '',
-    password: ''
+    email: 'biswasashish655@gmail.com',
+    password: 'Ashish-01'
   });
 
   const handleChange = (e) => {
@@ -18,9 +21,18 @@ export default function LoginPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('Login attempt:', formData);
-    // Add authentication logic here
-    alert('Login functionality will be implemented here!');
+    
+    // In a real app, you would verify credentials with your backend here.
+    // For now, we will simulate a successful login.
+    console.log('Login successful with:', formData);
+
+    // 3. Set the login flag in localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem('isUserLoggedIn', 'true');
+    }
+    
+    // 4. Redirect the user to the homepage after successful login
+    router.push('/'); 
   };
 
   return (
@@ -93,7 +105,6 @@ export default function LoginPage() {
                   Remember me
                 </label>
               </div>
-
               <div className="text-sm">
                 <Link href="#" className="font-medium text-blue-600 hover:text-blue-500">
                   Forgot your password?
@@ -120,7 +131,6 @@ export default function LoginPage() {
                 <span className="px-2 bg-white text-gray-500">Or continue with</span>
               </div>
             </div>
-
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
                 <span>Google</span>
