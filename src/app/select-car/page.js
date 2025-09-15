@@ -3,10 +3,16 @@ import { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { gpsService } from '../../utils/gpsService';
 
-const LeafletMap = dynamic(() => import('../../components/Map'), { 
+// Use Google Maps component with singleton loader
+const GoogleMap = dynamic(() => import('../../components/Map'), { 
   ssr: false,
-  loading: () => <div className="h-full w-full bg-gray-200 animate-pulse flex items-center justify-center"><p className="text-gray-500">Loading Map...</p></div>
+  loading: () => (
+    <div className="h-full w-full bg-gray-200 animate-pulse flex items-center justify-center">
+      <p className="text-gray-500">Loading fresh Google Maps...</p>
+    </div>
+  )
 });
 
 // Simple icon components using CSS/Unicode
@@ -16,43 +22,81 @@ const ChevronLeftIcon = ({ className }) => (
   </svg>
 );
 
-const MapPinIcon = ({ className }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-);
-
 function SelectCarContent() {
   const searchParams = useSearchParams();
   const [currentLocation, setCurrentLocation] = useState(null);
-  const [currentLocationName, setCurrentLocationName] = useState('Loading...');
+  const [currentLocationName, setCurrentLocationName] = useState('Loading fresh data...');
   const [tripDetails, setTripDetails] = useState(null);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(true);
+  const [locationSource, setLocationSource] = useState('');
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
+  const [dataTimestamp, setDataTimestamp] = useState(null);
+  const [isGoogleMapsReady, setIsGoogleMapsReady] = useState(false);
 
-  // Geocode a single address to get coordinates
-  const geocodeAddress = async (address) => {
+  // **FORCE FRESH GEOCODING - No cache allowed**
+  const forceGeocodeAddress = async (address, biasLocation = null) => {
     try {
-      const response = await fetch(`/api/geocode?q=${encodeURIComponent(address)}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.length > 0) {
-          return {
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon)
-          };
-        }
+      console.log('🔄 FORCE FRESH geocoding (no cache):', address);
+      
+      // **Clear any cached data first**
+      gpsService.clearCache();
+      
+      const biasAt = biasLocation ? [biasLocation.lat, biasLocation.lng] : null;
+      const results = await gpsService.searchAddress(address, biasAt);
+      
+      if (results && results.length > 0) {
+        console.log('✅ Fresh geocode result:', results[0]);
+        return {
+          lat: results[0].lat,
+          lng: results[0].lng,
+          source: results[0].source
+        };
       }
     } catch (error) {
-      console.error('Geocoding error for:', address, error);
+      console.error('Fresh geocoding error for:', address, error);
     }
     return null;
   };
 
-  // Get trip details from URL parameters (from RideBookingForm)
+  // **ENSURE GOOGLE MAPS IS READY**
   useEffect(() => {
-    const processTripData = async () => {
-      // Extract coordinates and location details from URL parameters
+    const checkGoogleMapsReady = async () => {
+      try {
+        // Initialize Google Maps through gpsService (which uses singleton loader)
+        const isReady = await gpsService.initGoogleMaps();
+        setIsGoogleMapsReady(isReady);
+        console.log('🗺️ Google Maps ready status:', isReady);
+      } catch (error) {
+        console.error('Google Maps initialization error:', error);
+        setIsGoogleMapsReady(false);
+      }
+    };
+
+    checkGoogleMapsReady();
+  }, []);
+
+  // **ENHANCED PARAMETER PROCESSING WITH DEBUGGING**
+  useEffect(() => {
+    // Only process trip data when Google Maps is ready
+    if (!isGoogleMapsReady) return;
+
+    const processFreshTripData = async () => {
+      setIsProcessing(true);
+      
+      // **STEP 1: DEBUG ALL RECEIVED PARAMETERS**
+      console.group('🔍 SELECT-CAR PARAMETER DEBUG');
+      console.log('📋 ALL URL SEARCH PARAMS:');
+      
+      // Get all parameters and log them
+      const allParams = {};
+      for (const [key, value] of searchParams.entries()) {
+        allParams[key] = value;
+        console.log(`  ${key}: "${value}" (type: ${typeof value}, length: ${value?.length || 0})`);
+      }
+      
+      console.table(allParams);
+      
+      // **STEP 2: EXTRACT PARAMETERS WITH DETAILED LOGGING**
       const pickup = searchParams.get('pickup');
       const drop = searchParams.get('drop');
       const pickupLat = searchParams.get('pickupLat');
@@ -62,218 +106,319 @@ function SelectCarContent() {
       const totalDistance = searchParams.get('totalDistance');
       const totalDuration = searchParams.get('totalDuration');
       const stops = searchParams.get('stops');
+      const accuracy = searchParams.get('gpsAccuracy');
+      
+      console.log('📊 EXTRACTED PARAMETERS:');
+      console.log('  pickup:', pickup, '(valid:', !!pickup, ')');
+      console.log('  drop:', drop, '(valid:', !!drop, ')');
+      console.log('  pickupLat:', pickupLat, '(valid:', !!pickupLat, ')');
+      console.log('  pickupLng:', pickupLng, '(valid:', !!pickupLng, ')');
+      console.log('  dropLat:', dropLat, '(valid:', !!dropLat, ')');
+      console.log('  dropLng:', dropLng, '(valid:', !!dropLng, ')');
+      console.log('  totalDistance:', totalDistance);
+      console.log('  totalDuration:', totalDuration);
+      console.log('  stops:', stops);
+      console.log('  accuracy:', accuracy);
+      
+      // **STEP 3: VALIDATION WITH DETAILED FEEDBACK**
+      const missingParams = [];
+      if (!pickup) missingParams.push('pickup');
+      if (!drop) missingParams.push('drop');
+      if (!pickupLat) missingParams.push('pickupLat');
+      if (!pickupLng) missingParams.push('pickupLng');
+      if (!dropLat) missingParams.push('dropLat');
+      if (!dropLng) missingParams.push('dropLng');
+      
+      console.log('❓ MISSING PARAMETERS:', missingParams);
+      console.log('🔗 CURRENT URL:', window.location.href);
+      console.groupEnd();
 
-      if (pickup && drop && pickupLat && pickupLng && dropLat && dropLng) {
-        // Use coordinates from RideBookingForm
-        const pickupLocation = {
-          lat: parseFloat(pickupLat),
-          lng: parseFloat(pickupLng)
-        };
-
-        const dropLocation = {
-          lat: parseFloat(dropLat),
-          lng: parseFloat(dropLng)
-        };
-
-        // Process stops - geocode them to get coordinates
-        let stopsData = [];
-        let stopCoordinates = [];
+      // **VALIDATION: Ensure we have fresh coordinates**
+      if (missingParams.length > 0) {
+        console.error('❌ MISSING FRESH COORDINATES:', missingParams);
+        console.error('📋 Available params:', Object.keys(allParams));
+        console.error('🔗 Current URL:', window.location.href);
         
-        if (stops) {
-          try {
-            const stopsArray = JSON.parse(stops);
-            stopsData = stopsArray.filter(stop => stop && stop.trim());
-            
-            // Geocode each stop to get coordinates
-            console.log('🗺️ Geocoding stops:', stopsData);
-            for (const stop of stopsData) {
-              const coords = await geocodeAddress(stop);
-              if (coords) {
-                stopCoordinates.push({
-                  name: stop,
-                  ...coords
-                });
-              }
-            }
-            console.log('✅ Stop coordinates:', stopCoordinates);
-          } catch (error) {
-            console.error('Error parsing stops:', error);
-          }
-        }
-
-        // Set current location to pickup location from form
-        setCurrentLocation(pickupLocation);
-        setCurrentLocationName(pickup);
-
-        // Set trip details including stop coordinates
-        setTripDetails({
-          pickup: pickupLocation,
-          drop: dropLocation,
-          pickupName: pickup,
-          dropName: drop,
-          totalDistance: totalDistance || 'Unknown',
-          totalDuration: totalDuration || 'Unknown',
-          stops: stopsData,
-          stopCoordinates: stopCoordinates
-        });
-
-        console.log('✅ Using coordinates from RideBookingForm:', {
-          pickup: pickupLocation,
-          drop: dropLocation,
-          pickupName: pickup,
-          dropName: drop,
-          stops: stopsData,
-          stopCoordinates: stopCoordinates
-        });
-      } else {
-        // Fallback: If no coordinates provided, show error
-        console.error('❌ No trip coordinates provided from RideBookingForm');
-        setCurrentLocationName('Location data missing');
+        setCurrentLocationName(`Missing parameters: ${missingParams.join(', ')} - please get new GPS location`);
+        setIsProcessing(false);
+        
+        // **HELPFUL ERROR MESSAGE**
+        alert(`Missing required parameters: ${missingParams.join(', ')}\n\nPlease go back and ensure your pickup location has GPS coordinates.`);
+        return;
       }
+
+      // **FORCE CLEAR ALL CACHES**
+      console.log('🧹 CLEARING ALL CACHED DATA for fresh trip processing...');
+      gpsService.clearCache();
+      
+      // **Clear browser storage caches that might interfere**
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.removeItem('trip-cache');
+          sessionStorage.removeItem('location-cache');
+          localStorage.removeItem('trip-coordinates');
+          console.log('🧹 Browser storage caches cleared');
+        } catch (error) {
+          console.warn('Cache clear warning:', error);
+        }
+      }
+
+      console.log('🚗 Processing FRESH trip data (no cache)...');
+      
+      // **Get fresh timestamp to force uniqueness**
+      const timestamp = Date.now();
+      setDataTimestamp(timestamp);
+
+      // **PARSE FRESH COORDINATES (force to high precision)**
+      const pickupLocation = {
+        lat: parseFloat(pickupLat),
+        lng: parseFloat(pickupLng)
+      };
+
+      const dropLocation = {
+        lat: parseFloat(dropLat),
+        lng: parseFloat(dropLng)
+      };
+
+      // **VALIDATE COORDINATE FRESHNESS (check if they're reasonable)**
+      console.log('🔍 Validating fresh coordinate precision...');
+      const pickupPrecision = pickupLat.split('.')[1]?.length || 0;
+      const pickupLngPrecision = pickupLng.split('.')[1]?.length || 0;
+      
+      if (pickupPrecision < 6 || pickupLngPrecision < 6) {
+        console.warn('⚠️ Low precision coordinates detected - may be cached data');
+        setLocationSource('⚠️ Low Precision GPS');
+      } else {
+        console.log('✅ High precision coordinates confirmed (6+ decimal places)');
+        setLocationSource('🎯 High Precision GPS');
+      }
+
+      // **SET FRESH LOCATION DATA**
+      setCurrentLocation(pickupLocation);
+      setCurrentLocationName(pickup);
+      
+      // **PROCESS GPS ACCURACY**
+      if (accuracy) {
+        const gpsAcc = parseFloat(accuracy);
+        setGpsAccuracy(gpsAcc);
+        const accuracyStatus = gpsService.getAccuracyStatus(gpsAcc);
+        setLocationSource(`🎯 Fresh ${accuracyStatus} GPS`);
+      }
+
+      console.log('✅ Using FRESH coordinates (timestamp:', timestamp, '):', {
+        pickup: pickupLocation,
+        drop: dropLocation,
+        accuracy: accuracy ? `±${Math.round(parseFloat(accuracy))}m` : 'N/A',
+        precision: `${pickupPrecision} decimal places`
+      });
+
+      // **FORCE FRESH STOP PROCESSING**
+      let stopsData = [];
+      let stopCoordinates = [];
+      
+      if (stops) {
+        try {
+          const stopsArray = JSON.parse(stops);
+          stopsData = stopsArray.filter(stop => stop && stop.trim());
+          
+          if (stopsData.length > 0) {
+            console.log('🔄 FORCE FRESH geocoding for stops (no cache)...');
+            
+            // **PARALLEL FRESH GEOCODING**
+            const geocodePromises = stopsData.map(async (stop, index) => {
+              // Add small delay to ensure fresh requests
+              await new Promise(resolve => setTimeout(resolve, index * 100));
+              
+              const coords = await forceGeocodeAddress(stop, pickupLocation);
+              return coords ? {
+                name: stop,
+                ...coords,
+                timestamp: Date.now() // Track freshness
+              } : null;
+            });
+            
+            stopCoordinates = (await Promise.all(geocodePromises)).filter(Boolean);
+            console.log('✅ FRESH stops processed:', stopCoordinates);
+          }
+        } catch (error) {
+          console.error('Error parsing stops:', error);
+        }
+      }
+
+      // **SET COMPREHENSIVE FRESH TRIP DETAILS**
+      const freshTripDetails = {
+        pickup: pickupLocation,
+        drop: dropLocation,
+        pickupName: pickup,
+        dropName: drop,
+        totalDistance: totalDistance || 'Unknown',
+        totalDuration: totalDuration || 'Unknown',
+        stops: stopsData,
+        stopCoordinates: stopCoordinates,
+        locationSource: locationSource,
+        gpsAccuracy: accuracy ? parseFloat(accuracy) : null,
+        timestamp: timestamp, // Track data freshness
+        coordinatePrecision: pickupPrecision,
+        dataFreshness: 'FRESH' // Mark as fresh data
+      };
+
+      setTripDetails(freshTripDetails);
+
+      console.log('🎯 FRESH trip data ready for Google Maps display');
+      setIsProcessing(false);
     };
 
-    processTripData();
-  }, [searchParams]);
+    processFreshTripData();
+  }, [searchParams, isGoogleMapsReady]);
+
+  // **FORCE FRESH MAP RENDERING**
+  const mapKey = `fresh-map-${dataTimestamp}-${isGoogleMapsReady}`;
+
+  // Show loading while Google Maps is initializing or processing fresh data
+  if (!isGoogleMapsReady || isProcessing) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">
+            {!isGoogleMapsReady ? 'Initializing Google Maps...' : 'Processing fresh Google Places data...'}
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            {!isGoogleMapsReady ? 'Loading singleton Google Maps API' : 'Clearing all cached data for accuracy'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
-      {/* Left Panel - Location Display */}
-      <div className="w-full lg:w-2/5 bg-white shadow-lg overflow-y-auto">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center mb-4">
-            <Link href="/" className="mr-3">
-              <ChevronLeftIcon className="h-6 w-6 text-gray-600" />
+    <div className="h-screen bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* Left Panel - Simplified */}
+      <div className="w-full lg:w-2/5 bg-white shadow-lg overflow-y-auto flex-shrink-0">
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center mb-8">
+            <Link href="/" className="mr-4">
+              <ChevronLeftIcon className="h-6 w-6 text-gray-600 hover:text-gray-800 transition-colors" />
             </Link>
-            <h1 className="text-xl font-semibold text-gray-900">Your Trip</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Choose the Ride</h1>
           </div>
-          
-          {/* Trip Details Display */}
-          <div className="space-y-4">
-            {/* Pickup Location */}
-            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-              <div className="flex items-start space-x-3">
-                <div className="w-3 h-3 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-green-900">Pickup Location</p>
-                  <p className="text-sm text-green-800 truncate">{tripDetails?.pickupName || currentLocationName}</p>
-                  {currentLocation && (
-                    <p className="text-xs text-green-600 mt-1">
-                      📍 {currentLocation.lat.toFixed(4)}, {currentLocation.lng.toFixed(4)}
-                    </p>
-                  )}
+
+          {/* Trip Summary */}
+          {tripDetails && (
+            <div className="mb-8">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-gray-600">From:</span>
+                  <span className="font-medium text-gray-900 text-right flex-1 ml-4 truncate">
+                    {tripDetails.pickupName}
+                  </span>
+                </div>
+                
+                {tripDetails.stops && tripDetails.stops.length > 0 && (
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-gray-600">Via:</span>
+                    <span className="font-medium text-gray-900 text-right flex-1 ml-4 truncate">
+                      {tripDetails.stops.join(', ')}
+                    </span>
+                  </div>
+                )}
+                
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-gray-600">To:</span>
+                  <span className="font-medium text-gray-900 text-right flex-1 ml-4 truncate">
+                    {tripDetails.dropName}
+                  </span>
+                </div>
+                
+                <hr className="my-4" />
+                
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-gray-600">Distance:</span>
+                  <span className="font-semibold text-gray-900">
+                    {tripDetails.totalDistance !== 'Unknown' ? `${tripDetails.totalDistance} km` : 'Calculating...'}
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-gray-600">Estimated Time:</span>
+                  <span className="font-semibold text-gray-900">
+                    {tripDetails.totalDuration !== 'Unknown' ? `${tripDetails.totalDuration} mins` : 'Calculating...'}
+                  </span>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Stop Locations */}
-            {tripDetails?.stopCoordinates && tripDetails.stopCoordinates.map((stop, index) => (
-              <div key={index} className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                <div className="flex items-start space-x-3">
-                  <div className="w-3 h-3 bg-yellow-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-yellow-900">Stop {index + 1}</p>
-                    <p className="text-sm text-yellow-800 truncate">{stop.name}</p>
-                    <p className="text-xs text-yellow-600 mt-1">
-                      📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
-                    </p>
-                  </div>
-                </div>
+          {/* No Rides Available Message */}
+          <div className="text-center py-12">
+            <div className="mb-6">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </div>
-            ))}
-
-            {/* Drop Location */}
-            {tripDetails?.drop && (
-              <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                <div className="flex items-start space-x-3">
-                  <div className="w-3 h-3 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-red-900">Drop Location</p>
-                    <p className="text-sm text-red-800 truncate">{tripDetails.dropName}</p>
-                    <p className="text-xs text-red-600 mt-1">
-                      📍 {tripDetails.drop.lat.toFixed(4)}, {tripDetails.drop.lng.toFixed(4)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Trip Summary */}
-            {tripDetails && (
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <h3 className="text-sm font-medium text-blue-900 mb-2">Trip Summary</h3>
-                <div className="space-y-1 text-sm text-blue-800">
-                  <div className="flex justify-between">
-                    <span>Distance:</span>
-                    <span className="font-semibold">
-                      {tripDetails.totalDistance !== 'Unknown' ? `${tripDetails.totalDistance} km` : 'Calculating...'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Duration:</span>
-                    <span className="font-semibold">
-                      {tripDetails.totalDuration !== 'Unknown' ? `${tripDetails.totalDuration} mins` : 'Calculating...'}
-                    </span>
-                  </div>
-                  {tripDetails.stops && tripDetails.stops.length > 0 && (
-                    <div className="flex justify-between">
-                      <span>Stops:</span>
-                      <span className="font-semibold">{tripDetails.stops.length}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Status Message */}
-            {currentLocation && tripDetails ? (
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                <div className="text-center">
-                  <h2 className="text-lg font-semibold text-green-900 mb-2">🚗 Ready to Book!</h2>
-                  <p className="text-sm text-green-700">
-                    Your trip details are confirmed. Choose a ride option to continue.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                <div className="text-center">
-                  <h2 className="text-lg font-semibold text-yellow-900 mb-2">⚠️ Missing Trip Data</h2>
-                  <p className="text-sm text-yellow-700 mb-4">
-                    Trip information is incomplete. Please go back and select your locations again.
-                  </p>
-                  <Link 
-                    href="/"
-                    className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-yellow-700 transition-colors inline-block"
-                  >
-                    ← Back to Home
-                  </Link>
-                </div>
-              </div>
-            )}
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Rides Available</h3>
+              <p className="text-gray-600 text-sm max-w-sm mx-auto">
+                We're currently working on bringing ride options to your area. 
+                Please check back later or try a different route.
+              </p>
+            </div>
+            
+            <div className="space-y-3">
+              <Link 
+                href="/"
+                className="block w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                Try Different Route
+              </Link>
+              
+              <button 
+                onClick={() => window.location.reload()}
+                className="block w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
+
+          {/* Status Footer */}
+          {tripDetails && (
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <div className="text-xs text-gray-500 space-y-1">
+                <div className="flex justify-between">
+                  <span>Map Status:</span>
+                  <span className="text-green-600">✅ Ready</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Trip Data:</span>
+                  <span className="text-green-600">Fresh ({new Date(dataTimestamp).toLocaleTimeString()})</span>
+                </div>
+                {gpsAccuracy && (
+                  <div className="flex justify-between">
+                    <span>GPS Accuracy:</span>
+                    <span className="text-green-600">±{Math.round(gpsAccuracy)}m</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Ride Options Section (placeholder for future implementation) */}
-        {currentLocation && tripDetails && (
-          <div className="p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Available Rides</h2>
-            <div className="text-center py-8 text-gray-500">
-              <p className="mb-4">🚧 Ride selection coming soon!</p>
-              <p className="text-sm">Your trip is ready to be booked.</p>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Right Panel - Map */}
-      <div className="flex-1 h-64 lg:h-screen">
-        <LeafletMap
-          pickup={currentLocation}
-          drop={tripDetails?.drop || null}
-          stops={tripDetails?.stopCoordinates || []}
-          route={null}
-          isInteractive={true}
-        />
+      {/* Right Panel - FULL PAGE HEIGHT Google Maps */}
+      <div className="flex-1 h-full">
+        {isGoogleMapsReady && (
+          <GoogleMap
+            key={mapKey} // Force fresh map rendering
+            pickup={currentLocation}
+            drop={tripDetails?.drop || null}
+            stops={tripDetails?.stopCoordinates || []}
+            route={null}
+            isInteractive={true}
+            userType="rider"
+          />
+        )}
       </div>
     </div>
   );
@@ -281,7 +426,14 @@ function SelectCarContent() {
 
 export default function SelectCarPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><p>Loading trip details...</p></div>}>
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p>Loading trip data...</p>
+        </div>
+      </div>
+    }>
       <SelectCarContent />
     </Suspense>
   );

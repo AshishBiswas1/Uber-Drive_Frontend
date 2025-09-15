@@ -3,7 +3,9 @@ import Link from 'next/link';
 import { useState, useEffect, Suspense, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { gpsService } from '../../utils/gpsService';
+import { googleMapsLoader } from '../../utils/googleMapsLoader';
 
+// Use singleton Google Maps loader
 const LeafletMap = dynamic(() => import('../../components/Map'), { 
   ssr: false,
   loading: () => <div className="h-full w-full bg-gray-200 animate-pulse flex items-center justify-center"><p className="text-gray-500">Initializing Map...</p></div>
@@ -27,7 +29,7 @@ function OnlineOfflineToggle({ isOnline, onToggle, disabled }) {
   );
 }
 
-function GPSStatusCard({ gpsStatus, locationAccuracy, hasError, onRetry }) {
+function GPSStatusCard({ gpsStatus, locationAccuracy, hasError, onRetry, coordinates }) {
   const getStatusColor = () => {
     if (hasError) return 'bg-red-50 border-red-200 text-red-800';
     if (gpsStatus.includes('Excellent')) return 'bg-green-50 border-green-200 text-green-800';
@@ -45,6 +47,11 @@ function GPSStatusCard({ gpsStatus, locationAccuracy, hasError, onRetry }) {
           {locationAccuracy && (
             <p className="text-xs mt-1 opacity-75">
               Accuracy: ±{Math.round(locationAccuracy)}m
+            </p>
+          )}
+          {coordinates && (
+            <p className="text-xs mt-1 opacity-75 font-mono">
+              📍 {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
             </p>
           )}
         </div>
@@ -82,6 +89,28 @@ function DriverPageContent() {
   const [gpsError, setGpsError] = useState(null);
   const [tripDetails, setTripDetails] = useState(null); 
   const [route, setRoute] = useState(null);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [isGoogleMapsReady, setIsGoogleMapsReady] = useState(false);
+
+  // **INITIALIZE GOOGLE MAPS SINGLETON SILENTLY**
+  useEffect(() => {
+    const initializeGoogleMaps = async () => {
+      try {
+        // Use singleton loader to prevent multiple script loads
+        await googleMapsLoader.loadGoogleMaps(process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY);
+        
+        if (googleMapsLoader.isGoogleMapsLoaded()) {
+          setIsGoogleMapsReady(true);
+          console.log('✅ Driver page: Google Maps singleton ready (silent)');
+        }
+      } catch (error) {
+        console.error('❌ Driver page: Google Maps initialization error:', error);
+        setIsGoogleMapsReady(false);
+      }
+    };
+
+    initializeGoogleMaps();
+  }, []);
 
   // Handle hydration and load saved state
   useEffect(() => {
@@ -102,9 +131,9 @@ function DriverPageContent() {
     }
   }, [isOnline, isHydrated]);
 
-  // Get driver's location using GPS service
+  // **ENHANCED GPS WITH SAME METHOD AS RIDEBOOKING FORM**
   useEffect(() => {
-    if (!isOnline || !isHydrated) {
+    if (!isOnline || !isHydrated || !isGoogleMapsReady) {
       setDriverLocation(null);
       setLocationAccuracy(null);
       setGpsStatus('Offline');
@@ -112,69 +141,212 @@ function DriverPageContent() {
       return;
     }
 
-    setGpsStatus('🛰️ Acquiring GPS satellites...');
+    setIsGettingLocation(true);
+    setGpsStatus('🛰️ Getting GPS location...');
     setGpsError(null);
     
-    const handleDriverLocationUpdate = (position, error) => {
-      if (error) {
-        let userFriendlyMessage = '';
-        let troubleshootingMessage = '';
+    // **ENHANCED GPS ACQUISITION (same as RideBookingForm)**
+    const getEnhancedGPS = async () => {
+      try {
+        console.log('🚀 Driver GPS acquisition (same as RideBookingForm)...');
         
-        if (error.message.includes('denied')) {
-          userFriendlyMessage = '❌ Location Access Denied';
-          troubleshootingMessage = 'Please enable location permissions in your browser settings and refresh the page.';
-        } else if (error.message.includes('unavailable')) {
-          userFriendlyMessage = '📡 GPS Satellites Unavailable';
-          troubleshootingMessage = 'Move to an outdoor area with clear sky visibility for better GPS reception.';
-        } else if (error.message.includes('timeout')) {
-          userFriendlyMessage = '⏱️ GPS Timeout';
-          troubleshootingMessage = 'GPS is taking too long. Try moving outdoors and ensure location services are enabled.';
-        } else if (error.message.includes('GPS_POOR_ACCURACY')) {
-          userFriendlyMessage = '📶 GPS Signal Too Weak';
-          troubleshootingMessage = 'Current GPS accuracy is insufficient for driver tracking. Please move outdoors for better signal.';
-        } else {
-          userFriendlyMessage = '❌ GPS Error';
-          troubleshootingMessage = 'Unable to get your location. Please check your device settings and try again.';
+        // **CLEAR GPS CACHE FOR FRESH READING**
+        gpsService.clearCache();
+        
+        // **MULTIPLE GPS ATTEMPTS FOR BEST ACCURACY**
+        let bestPosition = null;
+        let bestAccuracy = Infinity;
+        
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            console.log(`🛰️ Driver GPS Attempt ${attempt}/2`);
+            
+            const position = await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error(`GPS_TIMEOUT_ATTEMPT_${attempt}`));
+              }, attempt === 1 ? 15000 : 20000);
+
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  clearTimeout(timeout);
+                  resolve(pos);
+                },
+                (err) => {
+                  clearTimeout(timeout);
+                  reject(err);
+                },
+                {
+                  enableHighAccuracy: attempt === 2, // **First quick, second accurate**
+                  maximumAge: 0, // **NO CACHE**
+                  timeout: attempt === 1 ? 10000 : 15000
+                }
+              );
+            });
+
+            console.log(`📡 Driver Attempt ${attempt}: ±${position.coords.accuracy}m at ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`);
+
+            // **KEEP MOST ACCURATE READING**
+            if (position.coords.accuracy < bestAccuracy) {
+              bestPosition = position;
+              bestAccuracy = position.coords.accuracy;
+              console.log(`✅ Driver: New best accuracy: ±${bestAccuracy}m`);
+            }
+
+            // **EXCELLENT ACCURACY EARLY EXIT**
+            if (bestAccuracy <= 20) {
+              console.log(`🎯 Driver: Excellent accuracy achieved early: ±${bestAccuracy}m`);
+              break;
+            }
+
+            // **BRIEF PAUSE BETWEEN ATTEMPTS**
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+          } catch (attemptError) {
+            console.warn(`❌ Driver GPS Attempt ${attempt} failed:`, attemptError.message);
+            if (attempt === 2 && !bestPosition) {
+              throw attemptError;
+            }
+          }
+        }
+
+        if (!bestPosition) {
+          throw new Error('All GPS attempts failed');
+        }
+
+        // **SET DRIVER COORDINATES**
+        const driverCoords = {
+          lat: bestPosition.coords.latitude,
+          lng: bestPosition.coords.longitude
+        };
+        
+        setDriverLocation(driverCoords);
+        setLocationAccuracy(bestPosition.coords.accuracy);
+        
+        // **🔥 ENHANCED CONSOLE LOG - DRIVER COORDINATES 🔥**
+        console.log('🚗📍 DRIVER PAGE - COORDINATES FETCHED:');
+        console.log('=====================================');
+        console.log('📍 DRIVER GPS COORDINATES:');
+        console.log(`   Latitude:  ${driverCoords.lat}`);
+        console.log(`   Longitude: ${driverCoords.lng}`);
+        console.log(`   Precision: ${driverCoords.lat.toFixed(8)}, ${driverCoords.lng.toFixed(8)}`);
+        console.log(`   Accuracy:  ±${Math.round(bestPosition.coords.accuracy)}m`);
+        console.log(`   Status:    ${gpsService.getAccuracyStatus(bestPosition.coords.accuracy)}`);
+        console.log(`   Timestamp: ${new Date().toLocaleTimeString()}`);
+        console.log(`   Source:    Driver Page GPS (same method as RideBookingForm)`);
+        console.log('=====================================');
+
+        const accuracyStatus = gpsService.getAccuracyStatus(bestPosition.coords.accuracy);
+        let statusEmoji = '';
+        switch (accuracyStatus) {
+          case 'Excellent': statusEmoji = '🎯'; break;
+          case 'Very Good': statusEmoji = '✅'; break;
+          case 'Good': statusEmoji = '✅'; break;
+          case 'Fair': statusEmoji = '⚠️'; break;
+          case 'City-level': statusEmoji = '🏙️'; break;
+          case 'Area-level': statusEmoji = '🗺️'; break;
+          default: statusEmoji = '📍'; break;
         }
         
-        setGpsStatus(userFriendlyMessage);
-        setGpsError({
-          message: userFriendlyMessage,
-          troubleshooting: troubleshootingMessage,
-          canRetry: true
-        });
-        return;
-      }
+        setGpsStatus(`${statusEmoji} GPS ${accuracyStatus} - Driver Location Active`);
+        setGpsError(null);
+        
+        console.log(`✅ Driver GPS success: ${accuracyStatus} (±${Math.round(bestPosition.coords.accuracy)}m)`);
 
-      // GPS success
-      setGpsError(null);
-      const newLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
-      setDriverLocation(newLocation);
-      setLocationAccuracy(position.coords.accuracy);
-      
-      const accuracyStatus = gpsService.getAccuracyStatus(position.coords.accuracy);
-      let statusEmoji = '';
-      switch (accuracyStatus) {
-        case 'Excellent': statusEmoji = '🎯'; break;
-        case 'Very Good': statusEmoji = '✅'; break;
-        case 'Good': statusEmoji = '✅'; break;
-        case 'Fair': statusEmoji = '⚠️'; break;
-        default: statusEmoji = '📍'; break;
+      } catch (error) {
+        console.error('❌ Driver GPS failed:', error);
+        handleGPSError(error);
+      } finally {
+        setIsGettingLocation(false);
       }
-      
-      setGpsStatus(`${statusEmoji} GPS ${accuracyStatus} - Driver Location Active`);
     };
 
-    gpsService.startWatching(handleDriverLocationUpdate);
+    const handleGPSError = (error) => {
+      // **ENHANCED ERROR LOGGING**
+      console.log('❌📍 DRIVER PAGE - GPS FAILED:');
+      console.log('=====================================');
+      console.log(`   Error: ${error.message}`);
+      console.log(`   Code:  ${error.code || 'N/A'}`);
+      console.log(`   Time:  ${new Date().toLocaleTimeString()}`);
+      console.log('=====================================');
+      
+      let userFriendlyMessage = '';
+      let troubleshootingMessage = '';
+      
+      if (error.code === 1 || error.message.includes('denied')) {
+        userFriendlyMessage = '❌ Location Access Denied';
+        troubleshootingMessage = 'Please enable location permissions in your browser settings and refresh the page.';
+      } else if (error.code === 2 || error.message.includes('unavailable')) {
+        userFriendlyMessage = '📡 GPS Satellites Unavailable';
+        troubleshootingMessage = 'Move to an outdoor area with clear sky visibility for better GPS reception.';
+      } else if (error.code === 3 || error.message.includes('timeout')) {
+        userFriendlyMessage = '⏱️ GPS Timeout';
+        troubleshootingMessage = 'GPS is taking too long. Try moving outdoors and ensure location services are enabled.';
+      } else {
+        userFriendlyMessage = '❌ GPS Error';
+        troubleshootingMessage = 'Unable to get your location. Please check your device settings and try again.';
+      }
+      
+      setGpsStatus(userFriendlyMessage);
+      setGpsError({
+        message: userFriendlyMessage,
+        troubleshooting: troubleshootingMessage,
+        canRetry: true
+      });
+    };
+
+    // Start enhanced GPS acquisition
+    getEnhancedGPS();
+
+    // **CONTINUOUS TRACKING: Simple watchPosition for updates**
+    let watchId = null;
+    const startWatching = () => {
+      if (typeof window !== 'undefined' && navigator.geolocation) {
+        watchId = navigator.geolocation.watchPosition(
+          (position) => {
+            // Only update if significantly different or more accurate
+            const newLat = position.coords.latitude;
+            const newLng = position.coords.longitude;
+            const newAccuracy = position.coords.accuracy;
+            
+            if (!driverLocation || 
+                Math.abs(newLat - driverLocation.lat) > 0.0001 || 
+                Math.abs(newLng - driverLocation.lng) > 0.0001 ||
+                newAccuracy < (locationAccuracy || Infinity) * 0.8) {
+              
+              const updatedLocation = { lat: newLat, lng: newLng };
+              setDriverLocation(updatedLocation);
+              setLocationAccuracy(newAccuracy);
+              
+              console.log(`📍 Driver location updated: ${newLat.toFixed(6)}, ${newLng.toFixed(6)} (±${Math.round(newAccuracy)}m)`);
+            }
+          },
+          (error) => {
+            console.warn('📡 Watch GPS error:', error.message);
+            // Don't show errors for continuous watching
+          },
+          {
+            enableHighAccuracy: false, // **FASTER: Use network location for updates**
+            maximumAge: 30000,
+            timeout: 15000
+          }
+        );
+      }
+    };
+
+    // Start watching after initial location
+    setTimeout(startWatching, 5000);
 
     return () => {
-      gpsService.stopWatching(handleDriverLocationUpdate);
+      if (watchId && typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
-  }, [isOnline, isHydrated]);
+  }, [isOnline, isHydrated, isGoogleMapsReady]);
 
   const handleToggleOnline = () => {
     if (gpsError && !isOnline) {
-      // Don't allow going online if there's a GPS error
       return;
     }
     
@@ -187,18 +359,22 @@ function DriverPageContent() {
   };
 
   const handleGPSRetry = () => {
+    console.log('🔄 DRIVER PAGE - GPS RETRY INITIATED');
+    console.log('=====================================');
+    console.log('   Action: Retrying GPS with enhanced method');
+    console.log('   Time:   ' + new Date().toLocaleTimeString());
+    console.log('=====================================');
+    
     setGpsError(null);
     setGpsStatus('🛰️ Retrying GPS...');
     
-    // Restart GPS service
-    if (isOnline) {
-      gpsService.clearCache();
-      // The useEffect will automatically restart GPS watching
-    }
+    // Force reload by toggling online status
+    setIsOnline(false);
+    setTimeout(() => setIsOnline(true), 500);
   };
 
-  // Show loading state until hydrated
-  if (!isHydrated) {
+  // Show loading state until hydrated AND Google Maps ready
+  if (!isHydrated || !isGoogleMapsReady) {
     return (
       <>
         <div className="w-full lg:w-1/2 overflow-y-auto">
@@ -206,10 +382,10 @@ function DriverPageContent() {
             <div className="text-center pt-10">
               <h1 className="text-2xl font-semibold">Loading...</h1>
               <p className="text-gray-500 mt-2 mb-6">
-                Initializing driver interface...
+                {!isHydrated ? 'Initializing driver interface...' : 'Initializing Google Maps...'}
               </p>
               <div className="w-full py-3 bg-gray-300 text-gray-600 rounded-lg animate-pulse">
-                Loading...
+                {!isHydrated ? 'Loading...' : 'Google Maps Loading...'}
               </div>
             </div>
           </div>
@@ -225,7 +401,7 @@ function DriverPageContent() {
 
   return (
     <>
-      {/* Left Half: UI Panel */}
+      {/* Left Half: UI Panel - EXACT ORIGINAL */}
       <div className="w-full lg:w-1/2 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-6 md:p-10">
           <div className="text-center pt-10">
@@ -243,6 +419,7 @@ function DriverPageContent() {
                 locationAccuracy={locationAccuracy}
                 hasError={!!gpsError}
                 onRetry={handleGPSRetry}
+                coordinates={driverLocation}
               />
             )}
             
@@ -260,10 +437,18 @@ function DriverPageContent() {
               </div>
             )}
             
+            {/* Loading state */}
+            {isGettingLocation && (
+              <div className="mb-6 text-sm text-blue-700 bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>Getting your location with enhanced GPS...</span>
+              </div>
+            )}
+            
             <OnlineOfflineToggle 
               isOnline={isOnline} 
               onToggle={handleToggleOnline}
-              disabled={gpsError && !isOnline}
+              disabled={(gpsError && !isOnline) || isGettingLocation}
             />
             
             {/* Additional driver info when online with good GPS */}
@@ -271,9 +456,15 @@ function DriverPageContent() {
               <div className="mt-6 text-left bg-green-50 border border-green-200 p-4 rounded-lg">
                 <h3 className="font-medium text-green-800 mb-2">🚗 Driver Status</h3>
                 <div className="text-sm text-green-700 space-y-1">
-                  <p>📍 Location: Tracking active</p>
+                  <p>📍 Location: Enhanced GPS tracking active</p>
                   <p>📡 GPS: {Math.round(locationAccuracy)}m accuracy</p>
                   <p>🔍 Status: Available for trips</p>
+                  <p className="font-mono text-xs">
+                    {driverLocation.lat.toFixed(6)}, {driverLocation.lng.toFixed(6)}
+                  </p>
+                  <p className="text-xs text-green-600 mt-2">
+                    🔍 Check console for detailed coordinate logs
+                  </p>
                 </div>
               </div>
             )}
@@ -281,9 +472,10 @@ function DriverPageContent() {
         </div>
       </div>
 
-      {/* Right Half: Map Display */}
+      {/* Right Half: Map Display - EXACT ORIGINAL */}
       <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen lg:sticky lg:top-0">
         <LeafletMap 
+          key={`driver-map-${driverLocation ? driverLocation.lat + driverLocation.lng : 'no-location'}`}
           pickup={driverLocation}
           drop={null}
           route={null}
