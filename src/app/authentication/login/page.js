@@ -1,38 +1,79 @@
+// app/authentication/login/page.js (or pages/authentication/login.js)
+// LoginPage.js
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // 1. Import the router
+import { useRouter } from 'next/navigation';
+import { AuthAPI } from '../../../lib/api'; // adjust the relative path if needed
 
 export default function LoginPage() {
-  const router = useRouter(); // Initialize the router
+  const router = useRouter();
 
-  // 2. Set the initial state with your default email and password
+  // role can be 'rider' or 'driver'
+  const [role, setRole] = useState('rider');
+
   const [formData, setFormData] = useState({
     email: 'biswasashish655@gmail.com',
     password: 'Ashish-01'
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
+    setFormData((prev) => ({
+      ...prev,
       [e.target.name]: e.target.value
-    });
+    }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    // In a real app, you would verify credentials with your backend here.
-    // For now, we will simulate a successful login.
-    console.log('Login successful with:', formData);
+  const handleRoleChange = (e) => {
+    setRole(e.target.value);
+  };
 
-    // 3. Set the login flag in localStorage
-    if (typeof window !== "undefined") {
-      localStorage.setItem('isUserLoggedIn', 'true');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setIsSubmitting(true);
+
+    try {
+      // POST to /api/drive/{role}/login with credentials included
+      // Server can set HttpOnly cookie; this client will also receive JSON
+      let data;
+      if (role === 'rider') {
+        data = await AuthAPI.riderLogin({
+          email: formData.email,
+          password: formData.password,
+        });
+      } else {
+        data = await AuthAPI.driverLogin({
+          email: formData.email,
+          password: formData.password,
+        });
+      }
+
+      // If server returns an access token in body and you want to store it:
+      // localStorage.setItem('access_token', data?.token); // optional
+      // But since api.js uses credentials: 'include', you can rely on HttpOnly cookie
+
+      // Optional: mark logged in flag for UI state
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('isUserLoggedIn', 'true');
+        localStorage.setItem('user_role', role);
+      }
+
+      // Redirect post-login: choose any route you want
+      // For example, rider dashboard or driver dashboard
+      if (role === 'rider') {
+        router.push('/'); // rider home
+      } else {
+        router.push('/driver'); // driver home
+      }
+    } catch (err) {
+      setErrorMsg(err.message || 'Login failed');
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    // 4. Redirect the user to the homepage after successful login
-    router.push('/'); 
   };
 
   return (
@@ -55,6 +96,40 @@ export default function LoginPage() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
+            {/* Role toggle */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sign in as
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRole('rider')}
+                  className={`w-full py-2 rounded-md border text-sm font-medium ${
+                    role === 'rider'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Rider
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole('driver')}
+                  className={`w-full py-2 rounded-md border text-sm font-medium ${
+                    role === 'driver'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Driver
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                This selects whether the request goes to /api/drive/rider/login or /api/drive/driver/login
+              </p>
+            </div>
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email address
@@ -112,12 +187,19 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {errorMsg && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+                {errorMsg}
+              </div>
+            )}
+
             <div>
               <button
                 type="submit"
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                disabled={isSubmitting}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
               >
-                Sign in
+                {isSubmitting ? 'Signing in...' : 'Sign in'}
               </button>
             </div>
           </form>

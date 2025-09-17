@@ -1,3 +1,4 @@
+// AboutPage.js
 export default function AboutPage() {
   return (
     <div className="min-h-screen bg-gray-50 pt-8">

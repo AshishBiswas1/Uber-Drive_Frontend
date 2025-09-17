@@ -1,8 +1,10 @@
+// RiderPage.js
 'use client';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import RideBookingForm from './../../components/RideBookingForm'; // ← IMPORT ADDED
+
 
 function RideOption({ title, description, price, icon, isPopular = false }) {
   return (

@@ -1,4 +1,4 @@
-// src/app/api/geocode/route.js
+// src/app/api/geocode/route.js - FIXED VERSION
 import { NextResponse } from 'next/server';
 
 export async function GET(request) {
@@ -6,7 +6,7 @@ export async function GET(request) {
   const query = searchParams.get('q');
   const lat = searchParams.get('lat');
   const lng = searchParams.get('lng');
-  
+
   if (!query && (!lat || !lng)) {
     return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
   }
@@ -42,7 +42,7 @@ export async function GET(request) {
   } catch (error) {
     console.error('Geocoding API error:', error);
     return NextResponse.json(
-      { error: 'Geocoding service temporarily unavailable' }, 
+      { error: 'Geocoding service temporarily unavailable' },
       { status: 503 }
     );
   }
