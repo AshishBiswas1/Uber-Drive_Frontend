@@ -1,160 +1,1394 @@
-// DriverPage.js
+// DriverPage.js - ENHANCED VERSION WITH DYNAMIC ROUTING AND BACKEND STATUS FIX
 'use client';
 import Link from 'next/link';
-import { useState, useEffect, Suspense, useCallback } from 'react';
+import { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { gpsService } from '../../utils/gpsService';
-import { googleMapsLoader } from '../../utils/googleMapsLoader';
 
-// Use singleton Google Maps loader
-const LeafletMap = dynamic(() => import('../../components/Map'), { 
+// Load Map component dynamically
+const GoogleMap = dynamic(() => import('../../components/Map'), { 
   ssr: false,
-  loading: () => <div className="h-full w-full bg-gray-200 animate-pulse flex items-center justify-center"><p className="text-gray-500">Initializing Map...</p></div>
+  loading: () => <div className="h-full w-full bg-gray-200 animate-pulse flex items-center justify-center"><p className="text-gray-500">Loading Navigation...</p></div>
 });
 
-function OnlineOfflineToggle({ isOnline, onToggle, disabled }) {
+// Self-contained GPS service
+const gpsUtils = {
+  clearCache() {
+    console.log('🧹 GPS cache cleared');
+  },
+  
+  getAccuracyStatus(accuracy) {
+    if (accuracy <= 5) return 'Excellent';
+    if (accuracy <= 10) return 'Very Good';
+    if (accuracy <= 20) return 'Good';
+    if (accuracy <= 50) return 'Fair';
+    if (accuracy <= 100) return 'City-level';
+    return 'Area-level';
+  }
+};
+
+// Enhanced backend service with driver status API and ride requests
+const driverService = {
+  getAuthToken() {
+    const tokenSources = [
+      () => localStorage.getItem('access_token'),
+      () => localStorage.getItem('jwt'),
+      () => localStorage.getItem('authToken'),
+      () => localStorage.getItem('token'),
+      () => {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+          const [name, value] = cookie.trim().split('=');
+          if (name === 'jwt' || name === 'access_token') {
+            return decodeURIComponent(value);
+          }
+        }
+        return null;
+      }
+    ];
+
+    for (const getToken of tokenSources) {
+      const token = getToken();
+      if (token && token !== 'null' && token !== 'undefined') {
+        console.log('🔑 Found auth token from source:', getToken.name || 'cookie');
+        return token;
+      }
+    }
+
+    return null;
+  },
+
+  getDriverId() {
+    const sources = [
+      () => localStorage.getItem('user_id'),
+      () => localStorage.getItem('userId'),
+      () => {
+        const user = localStorage.getItem('user');
+        if (user) {
+          const userData = JSON.parse(user);
+          return userData.id || userData._id || userData.userId;
+        }
+        return null;
+      }
+    ];
+
+    for (const getSource of sources) {
+      const id = getSource();
+      if (id && id !== 'null' && id !== 'undefined') {
+        return id;
+      }
+    }
+    return null;
+  },
+
+  checkDriverPermissions() {
+    const userRole = localStorage.getItem('user_role');
+    const userId = localStorage.getItem('user_id');
+    
+    console.log('🔍 Checking driver permissions:', { userRole, userId: userId ? 'present' : 'missing' });
+    
+    if (userRole !== 'driver') {
+      console.warn('⚠️ User role is not "driver":', userRole);
+      return false;
+    }
+    
+    if (!userId) {
+      console.warn('⚠️ Missing user_id in localStorage');
+      return false;
+    }
+    
+    return true;
+  },
+
+  async getDriverStatus() {
+    try {
+      console.log('🔍 Fetching current driver status from backend...');
+      
+      if (!this.checkDriverPermissions()) {
+        throw new Error('PERMISSION_DENIED: User must be a driver to check status');
+      }
+
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/getDriverStatus`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token,
+          'x-access-token': token
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Failed to fetch driver status:', errorData);
+        throw new Error(`Failed to fetch status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Current driver status fetched:', data);
+      
+      return { success: true, status: data.status, data };
+
+    } catch (error) {
+      console.error('❌ Error fetching driver status:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  async setDriverStatus(isOnline) {
+    try {
+      console.log(`🔄 Setting driver status to: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+      
+      if (!this.checkDriverPermissions()) {
+        throw new Error('PERMISSION_DENIED: User must be a driver to update status');
+      }
+
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const payload = {
+        status: isOnline ? 'online' : 'offline',
+        timestamp: new Date().toISOString(),
+        userId: localStorage.getItem('user_id'),
+        source: 'driver_app'
+      };
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/setDriverStatus`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token,
+          'x-access-token': token
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+        }
+
+        console.error('❌ Driver status update failed:', errorData);
+        throw new Error(`Status update failed: ${errorData.message || response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Driver status updated successfully:', data);
+      
+      return { success: true, data };
+
+    } catch (error) {
+      console.error('❌ Driver status update failed:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  async updateDriverLocation(coordinates) {
+    try {
+      if (!this.checkDriverPermissions()) {
+        throw new Error('PERMISSION_DENIED: User must be a driver to update location');
+      }
+
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const payload = {
+        latitude: coordinates.lat,
+        longitude: coordinates.lng,
+        accuracy: coordinates.accuracy || null,
+        timestamp: new Date().toISOString(),
+        userId: localStorage.getItem('user_id'),
+        userRole: localStorage.getItem('user_role'),
+        source: 'driver_app'
+      };
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/setCurrentLocation`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token,
+          'x-access-token': token
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+        }
+        throw new Error(`Location update failed: ${errorData.message || response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Location updated successfully');
+      
+      return { success: true, data };
+
+    } catch (error) {
+      console.error('❌ Location update failed:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  async checkForRideRequests() {
+    try {
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const driverId = this.getDriverId();
+      if (!driverId) {
+        throw new Error('DRIVER_ID_MISSING: Driver ID not found');
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips/driver/${driverId}/pending`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token,
+          'x-access-token': token
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return { success: true, requests: [] };
+        }
+        throw new Error(`Failed to fetch ride requests: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('🔍 Pending ride requests:', data);
+      
+      return { 
+        success: true, 
+        requests: data.data?.trips || data.trips || [] 
+      };
+
+    } catch (error) {
+      console.error('❌ Error checking ride requests:', error);
+      return { success: false, error: error.message, requests: [] };
+    }
+  },
+
+  async acceptRideRequest(tripId) {
+    try {
+      console.log('✅ Accepting ride request:', tripId);
+      
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const driverId = this.getDriverId();
+      if (!driverId) {
+        throw new Error('DRIVER_ID_MISSING: Driver ID not found');
+      }
+
+      const payload = {
+        status: 'accepted',
+        acceptedAt: new Date().toISOString(),
+        driverId: driverId,
+        userId: localStorage.getItem('user_id'),
+        userRole: localStorage.getItem('user_role'),
+        timestamp: new Date().toISOString(),
+        source: 'driver_app'
+      };
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'x-auth-token': token,
+        'x-access-token': token,
+        'x-user-id': driverId,
+        'x-user-role': 'driver',
+        'x-driver-id': driverId
+      };
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips/${tripId}/accept`, {
+        method: 'PATCH',
+        headers: headers,
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { 
+            message: `HTTP ${response.status}: ${response.statusText}`,
+            status: response.status,
+            statusText: response.statusText
+          };
+        }
+
+        if (response.status === 403) {
+          if (localStorage.getItem('user_role') !== 'driver') {
+            throw new Error('ROLE_MISMATCH: User is not logged in as a driver. Please login as a driver.');
+          }
+          
+          if (!driverId) {
+            throw new Error('MISSING_DRIVER_ID: Driver ID not found in localStorage. Please re-login.');
+          }
+          
+          throw new Error(`AUTHORIZATION_DENIED: ${errorData.message || 'Not authorized to accept this trip'}. Please check if you are properly logged in as a driver.`);
+        }
+        
+        if (response.status === 404) {
+          throw new Error('TRIP_NOT_FOUND: This trip may have been cancelled or already accepted by another driver.');
+        }
+        
+        if (response.status === 409) {
+          throw new Error('TRIP_CONFLICT: This trip has already been accepted by another driver or is no longer available.');
+        }
+
+        throw new Error(`Failed to accept ride: ${errorData.message || response.statusText} (Status: ${response.status})`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Ride request accepted successfully');
+      
+      return { success: true, trip: data.data?.trip || data.trip };
+
+    } catch (error) {
+      console.error('❌ Error accepting ride request:', error);
+      
+      let userFriendlyMessage = error.message;
+      
+      if (error.message.includes('AUTHORIZATION_DENIED')) {
+        userFriendlyMessage = 'Authorization failed. Please logout and login again as a driver.';
+      } else if (error.message.includes('ROLE_MISMATCH')) {
+        userFriendlyMessage = 'Please login as a driver to accept rides.';
+      } else if (error.message.includes('TRIP_NOT_FOUND')) {
+        userFriendlyMessage = 'This trip is no longer available.';
+      } else if (error.message.includes('TRIP_CONFLICT')) {
+        userFriendlyMessage = 'This trip has already been accepted by another driver.';
+      } else if (error.message.includes('AUTH_TOKEN_MISSING')) {
+        userFriendlyMessage = 'Session expired. Please login again.';
+      }
+      
+      return { 
+        success: false, 
+        error: error.message,
+        userMessage: userFriendlyMessage
+      };
+    }
+  },
+
+  async rejectRideRequest(tripId, reason = 'Driver declined') {
+    try {
+      console.log('❌ Rejecting ride request:', tripId);
+      
+      const token = this.getAuthToken();
+      if (!token) {
+        throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips/${tripId}/reject`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token,
+          'x-access-token': token
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          status: 'cancelled_by_driver',
+          rejectedAt: new Date().toISOString(),
+          reason: reason
+        })
+      });
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+        }
+        throw new Error(`Failed to reject ride: ${errorData.message || response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Ride request rejected successfully:', data);
+      
+      return { success: true, trip: data.data?.trip || data.trip };
+
+    } catch (error) {
+      console.error('❌ Error rejecting ride request:', error);
+      return { success: false, error: error.message };
+    }
+  }
+};
+
+// ✨ ENHANCED: Trip Route Overview Component (shows when driver arrives)
+function TripRouteOverviewCard({ trip, driverLocation, onStartTrip, onCompleteTrip }) {
+  const [overviewTimer, setOverviewTimer] = useState(0);
+
+  useEffect(() => {
+    if (!trip?.arrivedAt) return;
+
+    const startTime = new Date(trip.arrivedAt);
+    const updateTimer = () => {
+      const now = new Date();
+      const elapsed = Math.floor((now - startTime) / 1000);
+      setOverviewTimer(elapsed);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [trip?.arrivedAt]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const calculateTotalDistance = () => {
+    let total = parseFloat(trip?.distance) || 0;
+    if (trip?.stops && trip.stops.length > 0) {
+      total += trip.stops.length * 2;
+    }
+    return total.toFixed(1);
+  };
+
+  const estimateTotalDuration = () => {
+    let baseDuration = parseFloat(trip?.duration?.estimatedDuration) || 30;
+    if (trip?.stops && trip.stops.length > 0) {
+      baseDuration += trip.stops.length * 5;
+    }
+    return Math.ceil(baseDuration);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Route Overview Header */}
+      <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6 border-2 border-green-200">
+        <div className="text-center">
+          <div className="mb-4">
+            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto text-white text-2xl">
+              ✅
+            </div>
+          </div>
+          
+          <h3 className="text-lg font-semibold mb-2 text-green-800">
+            Arrived at Pickup
+          </h3>
+          
+          <p className="text-sm text-green-700 mb-2">
+            🗺️ Review complete trip route below
+          </p>
+
+          <p className="text-xs text-green-600">
+            Waiting time: {formatTime(overviewTimer)}
+          </p>
+        </div>
+      </div>
+
+      {/* Complete Trip Route Summary */}
+      <div className="bg-white rounded-lg p-5 border-2 border-blue-200 shadow-sm">
+        <h4 className="font-semibold text-gray-800 mb-4 flex items-center">
+          🗺️ Complete Trip Overview
+          <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+            {trip?.stops && trip.stops.length > 0 ? `${trip.stops.length + 2} locations` : '2 locations'}
+          </span>
+        </h4>
+
+        {/* Route Steps */}
+        <div className="space-y-3 mb-4">
+          {/* Start - Pickup */}
+          <div className="flex items-start gap-3">
+            <div className="w-4 h-4 bg-green-500 rounded-full mt-1 flex-shrink-0"></div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">START - PICKUP</p>
+              <p className="font-medium text-sm text-gray-800">{trip?.pickupLocation?.address}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-green-600 font-medium">✅ Current</p>
+            </div>
+          </div>
+
+          {/* Stops */}
+          {trip?.stops && trip.stops.map((stop, index) => (
+            <div key={index} className="flex items-start gap-3">
+              <div className="w-4 h-4 bg-yellow-500 rounded-full mt-1 flex-shrink-0 relative">
+                <span className="absolute -top-1 -right-1 text-xs font-bold text-yellow-700">
+                  {index + 1}
+                </span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">STOP {index + 1}</p>
+                <p className="font-medium text-sm text-gray-800">{stop.address}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-yellow-600 font-medium">~{5 + index * 2} min</p>
+              </div>
+            </div>
+          ))}
+
+          {/* End - Destination */}
+          <div className="flex items-start gap-3">
+            <div className="w-4 h-4 bg-red-500 rounded-full mt-1 flex-shrink-0"></div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">END - DESTINATION</p>
+              <p className="font-medium text-sm text-gray-800">{trip?.dropoffLocation?.address}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-red-600 font-medium">~{estimateTotalDuration()} min</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Trip Statistics */}
+        <div className="grid grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Total Distance</p>
+            <p className="font-bold text-lg text-gray-800">{calculateTotalDistance()}</p>
+            <p className="text-xs text-gray-600">km</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Est. Duration</p>
+            <p className="font-bold text-lg text-gray-800">{estimateTotalDuration()}</p>
+            <p className="text-xs text-gray-600">minutes</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500">Trip Fare</p>
+            <p className="font-bold text-lg text-green-600">₹{trip?.fare?.totalFare}</p>
+            <p className="text-xs text-gray-600">total</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Trip Control Actions */}
+      <div className="space-y-3">
+        {/* ✅ FIXED: Check for both frontend and backend status values */}
+        {(trip?.status === 'arrived' || trip?.status === 'trip_arrived') ? (
+          <button
+            onClick={onStartTrip}
+            className="w-full bg-blue-600 text-white px-4 py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors text-lg"
+          >
+            🚗 Start Complete Trip
+          </button>
+        ) : (
+          <button
+            onClick={onCompleteTrip}
+            className="w-full bg-green-600 text-white px-4 py-4 rounded-lg font-semibold hover:bg-green-700 transition-colors text-lg"
+          >
+            ✅ Complete Trip
+          </button>
+        )}
+
+        <button
+          onClick={() => window.open(`tel:${trip?.riderId?.phoneNo || 'emergency'}`, '_self')}
+          className="w-full bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
+        >
+          📞 Contact Rider
+        </button>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <details className="text-sm">
+            <summary className="cursor-pointer font-medium text-gray-700 hover:text-gray-900">
+              📋 View Trip Details
+            </summary>
+            <div className="mt-3 space-y-2 text-xs text-gray-600">
+              <div className="flex justify-between">
+                <span>Trip ID:</span>
+                <span className="font-mono">{trip?._id?.slice(-8)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Vehicle Type:</span>
+                <span className="font-medium">{trip?.vehicleType}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Requested:</span>
+                <span>{new Date(trip?.createdAt).toLocaleTimeString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Accepted:</span>
+                <span>{new Date(trip?.acceptedAt).toLocaleTimeString()}</span>
+              </div>
+              {trip?.arrivedAt && (
+                <div className="flex justify-between">
+                  <span>Arrived:</span>
+                  <span>{new Date(trip.arrivedAt).toLocaleTimeString()}</span>
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ✨ ENHANCED: Active Trip Component with Navigation Stages and Backend Status Support
+function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }) {
+  const [tripTimer, setTripTimer] = useState(0);
+
+  useEffect(() => {
+    if (!trip?.acceptedAt) return;
+
+    const startTime = new Date(trip.acceptedAt);
+    const updateTimer = () => {
+      const now = new Date();
+      const elapsed = Math.floor((now - startTime) / 1000);
+      setTripTimer(elapsed);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [trip?.acceptedAt]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // ✅ FIXED: Check for both frontend and backend status values
+  if (trip?.status === 'arrived' || trip?.status === 'trip_arrived') {
+    return (
+      <TripRouteOverviewCard
+        trip={trip}
+        driverLocation={driverLocation}
+        onStartTrip={() => onUpdateStatus('started')}
+        onCompleteTrip={onCompleteTrip}
+      />
+    );
+  }
+
+  // ✅ ENHANCED: Handle backend status values in getStatusColor
+  const getStatusColor = () => {
+    const normalizedStatus = trip?.status?.toLowerCase();
+    switch (normalizedStatus) {
+      case 'accepted':
+      case 'trip_accepted':
+        return 'bg-blue-50 border-blue-200 text-blue-800';
+      case 'started':
+      case 'trip_started':  // ✅ FIXED: Handle backend status
+        return 'bg-purple-50 border-purple-200 text-purple-800';
+      default:
+        return 'bg-gray-50 border-gray-200 text-gray-800';
+    }
+  };
+
+  // ✅ ENHANCED: Handle backend status values in getStatusMessage
+  const getStatusMessage = () => {
+    const normalizedStatus = trip?.status?.toLowerCase();
+    switch (normalizedStatus) {
+      case 'accepted':
+      case 'trip_accepted':
+        return '🚗 Navigate to pickup location';
+      case 'started':
+      case 'trip_started':  // ✅ FIXED: Handle backend status
+        return '🎯 Trip in progress - navigate to destination';
+      case 'arrived':
+      case 'trip_arrived':
+        return '📍 Arrived at pickup - ready to start trip';
+      default:
+        return `Trip status: ${trip?.status || 'unknown'}`;
+    }
+  };
+
+  // ✅ ENHANCED: Handle backend status values in getNavigationInfo  
+  const getNavigationInfo = () => {
+    const normalizedStatus = trip?.status?.toLowerCase();
+    switch (normalizedStatus) {
+      case 'accepted':
+      case 'trip_accepted':
+        return {
+          destination: trip?.pickupLocation?.address,
+          icon: '📍',
+          color: 'text-blue-600',
+          label: 'Navigate to'
+        };
+      case 'started':
+      case 'trip_started':  // ✅ FIXED: Handle backend status
+        return {
+          destination: trip?.dropoffLocation?.address,
+          icon: '🎯',
+          color: 'text-purple-600',
+          label: 'Destination'
+        };
+      case 'arrived':
+      case 'trip_arrived':
+        return {
+          destination: 'Ready to start trip',
+          icon: '✅',
+          color: 'text-green-600',
+          label: 'Status'
+        };
+      default:
+        return {
+          destination: 'Unknown',
+          icon: '❓',
+          color: 'text-gray-600',
+          label: 'Current location'
+        };
+    }
+  };
+
+  // ✅ ENHANCED: Handle backend status values in getNextAction
+  const getNextAction = () => {
+    const normalizedStatus = trip?.status?.toLowerCase();
+    switch (normalizedStatus) {
+      case 'accepted':
+      case 'trip_accepted':
+        return { label: 'Mark as Arrived', action: () => onUpdateStatus('arrived') };
+      case 'started':
+      case 'trip_started':  // ✅ FIXED: Handle backend status
+        return { label: 'Complete Trip', action: onCompleteTrip };
+      case 'arrived':
+      case 'trip_arrived':
+        return { label: 'Start Trip', action: () => onUpdateStatus('started') };
+      default:
+        return null;
+    }
+  };
+
+  const nextAction = getNextAction();
+  const navInfo = getNavigationInfo();
+
+  return (
+    <div className="space-y-4">
+      {/* Status Card */}
+      <div className={`rounded-lg p-6 border-2 ${getStatusColor()}`}>
+        <div className="text-center">
+          <div className="mb-4">
+            <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto text-white text-2xl">
+              🚗
+            </div>
+          </div>
+          
+          <h3 className="text-lg font-semibold mb-2">
+            Active Trip
+          </h3>
+          
+          <p className="text-sm opacity-75 mb-2">
+            {getStatusMessage()}
+          </p>
+
+          <p className="text-xs opacity-75">
+            Trip time: {formatTime(tripTimer)}
+          </p>
+        </div>
+      </div>
+
+      {/* Navigation Info */}
+      <div className="bg-white rounded-lg p-4 border-2 border-dashed border-blue-300">
+        <div className="flex items-center gap-3">
+          <div className="text-2xl">{navInfo.icon}</div>
+          <div className="flex-1">
+            <p className="text-xs text-gray-500 uppercase tracking-wide">
+              {navInfo.label}
+            </p>
+            <p className={`font-medium text-sm ${navInfo.color}`}>
+              {navInfo.destination}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-gray-500">ETA</p>
+            <p className="font-semibold text-sm text-gray-800">
+              {['accepted', 'trip_accepted'].includes(trip?.status?.toLowerCase()) ? '5-10 min' : 
+               ['started', 'trip_started'].includes(trip?.status?.toLowerCase()) ? `${Math.ceil(trip?.distance / 2)} min` : 'Now'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Trip Details */}
+      <div className="bg-white rounded-lg p-4 border border-gray-200 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className={`w-3 h-3 ${['accepted', 'trip_accepted'].includes(trip?.status?.toLowerCase()) ? 'bg-blue-500 animate-pulse' : 'bg-green-500'} rounded-full mt-2`}></div>
+          <div>
+            <p className="text-sm text-gray-600">Pickup</p>
+            <p className="font-medium text-gray-900">{trip?.pickupLocation?.address}</p>
+          </div>
+        </div>
+
+        {trip?.stops && trip.stops.length > 0 && (
+          <div className="flex items-start gap-3">
+            <div className="w-3 h-3 bg-yellow-500 rounded-full mt-2"></div>
+            <div>
+              <p className="text-sm text-gray-600">Stops ({trip.stops.length})</p>
+              <p className="font-medium text-gray-900">
+                {trip.stops.slice(0, 2).map(stop => stop.address).join(', ')}
+                {trip.stops.length > 2 && ` + ${trip.stops.length - 2} more`}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3">
+          <div className={`w-3 h-3 ${['started', 'trip_started'].includes(trip?.status?.toLowerCase()) ? 'bg-purple-500 animate-pulse' : 'bg-red-500'} rounded-full mt-2`}></div>
+          <div>
+            <p className="text-sm text-gray-600">Destination</p>
+            <p className="font-medium text-gray-900">{trip?.dropoffLocation?.address}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Trip Info */}
+      <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-gray-600">Fare:</span>
+          <span className="font-semibold text-green-600">₹{trip?.fare?.totalFare}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Distance:</span>
+          <span className="font-semibold">{trip?.distance} km</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Vehicle:</span>
+          <span className="font-semibold">{trip?.vehicleType}</span>
+        </div>
+      </div>
+
+      {/* Action Button */}
+      {nextAction && (
+        <button
+          onClick={nextAction.action}
+          className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+        >
+          {nextAction.label}
+        </button>
+      )}
+
+      {/* Emergency Button */}
+      <button
+        onClick={() => window.open(`tel:${trip?.riderId?.phoneNo || 'emergency'}`, '_self')}
+        className="w-full bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
+      >
+        📞 Emergency Contact
+      </button>
+    </div>
+  );
+}
+
+// Ride Request Card Component
+function RideRequestCard({ request, onAccept, onReject, isProcessing }) {
+  const [timeElapsed, setTimeElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!request.createdAt && !request.requestedAt) return;
+
+    const requestTime = new Date(request.createdAt || request.requestedAt);
+    const updateTimer = () => {
+      const now = new Date();
+      const elapsed = Math.floor((now - requestTime) / 1000);
+      setTimeElapsed(elapsed);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [request.createdAt, request.requestedAt]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatDistance = (distance) => {
+    if (!distance) return 'Unknown';
+    return `${distance.toFixed(1)} km`;
+  };
+
+  const formatFare = (fare) => {
+    if (!fare || !fare.totalFare) return 'Unknown';
+    return `₹${fare.totalFare}`;
+  };
+
+  return (
+    <div className="bg-white border-2 border-blue-200 rounded-lg p-6 shadow-lg">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">New Ride Request</h3>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+          <span className="text-sm text-gray-600">{formatTime(timeElapsed)}</span>
+        </div>
+      </div>
+
+      {/* Trip Details */}
+      <div className="space-y-3 mb-6">
+        <div className="flex items-start gap-3">
+          <div className="w-3 h-3 bg-green-500 rounded-full mt-2"></div>
+          <div>
+            <p className="text-sm text-gray-600">Pickup</p>
+            <p className="font-medium text-gray-900">{request.pickupLocation?.address || 'Location provided by rider'}</p>
+          </div>
+        </div>
+
+        {request.stops && request.stops.length > 0 && (
+          <div className="flex items-start gap-3">
+            <div className="w-3 h-3 bg-yellow-500 rounded-full mt-2"></div>
+            <div>
+              <p className="text-sm text-gray-600">Stops</p>
+              <p className="font-medium text-gray-900">
+                {request.stops.map(stop => stop.address).join(', ')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3">
+          <div className="w-3 h-3 bg-red-500 rounded-full mt-2"></div>
+          <div>
+            <p className="text-sm text-gray-600">Destination</p>
+            <p className="font-medium text-gray-900">{request.dropoffLocation?.address || 'Destination provided by rider'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Trip Info */}
+      <div className="grid grid-cols-3 gap-4 mb-6 bg-gray-50 rounded-lg p-4">
+        <div className="text-center">
+          <p className="text-sm text-gray-600">Distance</p>
+          <p className="font-semibold">{formatDistance(request.distance)}</p>
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-gray-600">Duration</p>
+          <p className="font-semibold">{request.duration?.estimatedDuration || 'Unknown'} min</p>
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-gray-600">Fare</p>
+          <p className="font-semibold text-green-600">{formatFare(request.fare)}</p>
+        </div>
+      </div>
+
+      {/* Vehicle Type */}
+      {request.vehicleType && (
+        <div className="mb-6 p-3 bg-blue-50 rounded-lg">
+          <p className="text-sm text-blue-800">
+            <strong>Requested Vehicle:</strong> {request.vehicleType}
+          </p>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => onReject(request._id)}
+          disabled={isProcessing}
+          className="flex-1 bg-red-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+        >
+          {isProcessing ? 'Processing...' : 'Decline'}
+        </button>
+        <button
+          onClick={() => onAccept(request._id)}
+          disabled={isProcessing}
+          className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+        >
+          {isProcessing ? 'Processing...' : 'Accept Ride'}
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 text-center mt-3">
+        This request will expire automatically if not responded to within 2 minutes
+      </p>
+    </div>
+  );
+}
+
+function OnlineOfflineToggle({ isOnline, onToggle, disabled, isUpdating }) {
   return (
     <button 
       onClick={onToggle}
-      disabled={disabled}
-      className={`w-full py-3 text-md font-semibold rounded-lg transition-colors ${
-        disabled 
+      disabled={disabled || isUpdating}
+      className={`w-full py-3 text-md font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 ${
+        disabled || isUpdating
           ? 'bg-gray-400 text-gray-700 cursor-not-allowed'
           : isOnline 
             ? 'bg-red-500 text-white hover:bg-red-600' 
             : 'bg-green-600 text-white hover:bg-green-700'
       }`}
     >
-      {isOnline ? 'Go Offline' : 'Go Online'}
+      {isUpdating ? (
+        <>
+          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          Updating...
+        </>
+      ) : (
+        isOnline ? 'Go Offline' : 'Go Online'
+      )}
     </button>
   );
 }
 
-function GPSStatusCard({ gpsStatus, locationAccuracy, hasError, onRetry, coordinates }) {
-  const getStatusColor = () => {
-    if (hasError) return 'bg-red-50 border-red-200 text-red-800';
-    if (gpsStatus.includes('Excellent')) return 'bg-green-50 border-green-200 text-green-800';
-    if (gpsStatus.includes('Good') || gpsStatus.includes('Very Good')) return 'bg-blue-50 border-blue-200 text-blue-800';
-    if (gpsStatus.includes('Fair')) return 'bg-yellow-50 border-yellow-200 text-yellow-800';
-    return 'bg-gray-50 border-gray-200 text-gray-800';
-  };
-
-  return (
-    <div className={`p-4 rounded-lg border ${getStatusColor()} mb-4`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-medium text-sm">GPS Status</h3>
-          <p className="text-sm mt-1">{gpsStatus}</p>
-          {locationAccuracy && (
-            <p className="text-xs mt-1 opacity-75">
-              Accuracy: ±{Math.round(locationAccuracy)}m
-            </p>
-          )}
-          {coordinates && (
-            <p className="text-xs mt-1 opacity-75 font-mono">
-              📍 {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
-            </p>
-          )}
-        </div>
-        {hasError && (
-          <button
-            onClick={onRetry}
-            className="px-3 py-1 bg-red-600 text-white text-xs rounded-md hover:bg-red-700 transition-colors"
-          >
-            Retry GPS
-          </button>
-        )}
-      </div>
-      
-      {hasError && (
-        <div className="mt-3 p-3 bg-red-100 rounded-md">
-          <h4 className="font-medium text-red-800 text-sm mb-2">📡 GPS Troubleshooting</h4>
-          <ul className="text-xs text-red-700 space-y-1">
-            <li>• Move to an outdoor area with clear sky view</li>
-            <li>• Check location permissions in browser settings</li>
-            <li>• Ensure GPS is enabled on your device</li>
-            <li>• Wait 30-60 seconds for GPS satellites</li>
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
+// ✅ ENHANCED: Driver Page Content with Dynamic Navigation
 function DriverPageContent() {
+  // All state variables
   const [isOnline, setIsOnline] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const [driverLocation, setDriverLocation] = useState(null);
   const [locationAccuracy, setLocationAccuracy] = useState(null);
-  const [gpsStatus, setGpsStatus] = useState('Initializing...');
-  const [gpsError, setGpsError] = useState(null);
-  const [tripDetails, setTripDetails] = useState(null); 
-  const [route, setRoute] = useState(null);
+  const [authError, setAuthError] = useState(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
-  const [isGoogleMapsReady, setIsGoogleMapsReady] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [activeTrip, setActiveTrip] = useState(null);
+  const [isProcessingRequest, setIsProcessingRequest] = useState(false);
 
-  // **INITIALIZE GOOGLE MAPS SINGLETON SILENTLY**
+  // Backend Connection State
+  const [backendStatus, setBackendStatus] = useState({
+    connected: false,
+    lastUpdate: null,
+    retryCount: 0
+  });
+
+  // Location Update Interval Refs
+  const locationUpdateInterval = useRef(null);
+  const watchId = useRef(null);
+  const lastLocationSent = useRef(null);
+  const rideRequestInterval = useRef(null);
+  const shouldPollRequests = useRef(true);
+
+  // Load initial driver status from backend
   useEffect(() => {
-    const initializeGoogleMaps = async () => {
-      try {
-        // Use singleton loader to prevent multiple script loads
-        await googleMapsLoader.loadGoogleMaps(process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY);
-        
-        if (googleMapsLoader.isGoogleMapsLoaded()) {
-          setIsGoogleMapsReady(true);
-          console.log('✅ Driver page: Google Maps singleton ready (silent)');
+    const loadInitialStatus = async () => {
+      setIsHydrated(true);
+      
+      if (typeof window !== "undefined") {
+        if (!driverService.checkDriverPermissions()) {
+          setAuthError('You must be logged in as a driver to use this feature');
+          return;
         }
-      } catch (error) {
-        console.error('❌ Driver page: Google Maps initialization error:', error);
-        setIsGoogleMapsReady(false);
+
+        console.log('🚀 Loading initial driver status from backend...');
+        
+        const statusResult = await driverService.getDriverStatus();
+        
+        if (statusResult.success) {
+          const backendStatus = statusResult.status === 'online';
+          console.log(`✅ Backend driver status: ${statusResult.status}`);
+          setIsOnline(backendStatus);
+        } else {
+          console.warn('⚠️ Failed to load driver status, defaulting to offline');
+          const savedStatus = localStorage.getItem('driverOnlineStatus');
+          if (savedStatus) {
+            setIsOnline(JSON.parse(savedStatus));
+          }
+        }
+
+        setAuthError(null);
       }
     };
 
-    initializeGoogleMaps();
+    loadInitialStatus();
   }, []);
 
-  // Handle hydration and load saved state
-  useEffect(() => {
-    setIsHydrated(true);
-    
-    if (typeof window !== "undefined") {
-      const savedStatus = localStorage.getItem('driverOnlineStatus');
-      if (savedStatus) {
-        setIsOnline(JSON.parse(savedStatus));
+  // Enhanced Send Location to Backend
+  const sendLocationToBackend = useCallback(async (coordinates) => {
+    if (!coordinates || !isOnline) return;
+
+    if (authError) {
+      console.log('🚫 Skipping location update due to auth error:', authError);
+      return;
+    }
+
+    if (lastLocationSent.current) {
+      const distance = Math.sqrt(
+        Math.pow(coordinates.lat - lastLocationSent.current.lat, 2) + 
+        Math.pow(coordinates.lng - lastLocationSent.current.lng, 2)
+      );
+      
+      if (distance < 0.0001 && coordinates.accuracy > 50) {
+        console.log('🔄 Location unchanged, skipping backend update');
+        return;
       }
     }
+
+    const result = await driverService.updateDriverLocation({
+      lat: coordinates.lat,
+      lng: coordinates.lng,
+      accuracy: coordinates.accuracy
+    });
+
+    if (result.success) {
+      setBackendStatus({
+        connected: true,
+        lastUpdate: new Date().toLocaleTimeString(),
+        retryCount: 0
+      });
+      
+      lastLocationSent.current = {
+        lat: coordinates.lat,
+        lng: coordinates.lng,
+        timestamp: Date.now()
+      };
+
+      console.log('✅ Location successfully sent to backend');
+    } else {
+      setBackendStatus(prev => ({
+        connected: false,
+        lastUpdate: prev.lastUpdate,
+        retryCount: prev.retryCount + 1
+      }));
+
+      if (backendStatus.retryCount < 3) {
+        console.log(`🔄 Retrying location update (attempt ${backendStatus.retryCount + 1}/3)`);
+        setTimeout(() => sendLocationToBackend(coordinates), 2000);
+      }
+    }
+  }, [isOnline, authError, backendStatus.retryCount]);
+
+  // Start/Stop Location Updates Every 10 Seconds
+  const startLocationUpdates = useCallback(() => {
+    if (locationUpdateInterval.current || authError || !isOnline) return;
+
+    console.log('🚀 Starting 10-second location updates to backend');
+    
+    locationUpdateInterval.current = setInterval(() => {
+      if (driverLocation && isOnline && !authError) {
+        console.log('⏰ 10-second interval: Sending location to backend');
+        sendLocationToBackend({
+          lat: driverLocation.lat,
+          lng: driverLocation.lng,
+          accuracy: locationAccuracy
+        });
+      }
+    }, 10000);
+
+  }, [driverLocation, isOnline, locationAccuracy, sendLocationToBackend, authError]);
+
+  const stopLocationUpdates = useCallback(() => {
+    if (locationUpdateInterval.current) {
+      console.log('🛑 Stopping location updates to backend');
+      clearInterval(locationUpdateInterval.current);
+      locationUpdateInterval.current = null;
+    }
   }, []);
 
-  // Persist the 'isOnline' state to localStorage
-  useEffect(() => {
-    if (isHydrated && typeof window !== "undefined") {
-      localStorage.setItem('driverOnlineStatus', JSON.stringify(isOnline));
-    }
-  }, [isOnline, isHydrated]);
+  // Check for ride requests with stop control
+  const startRideRequestPolling = useCallback(() => {
+    if (rideRequestInterval.current || !isOnline || authError || activeTrip) return;
 
-  // **ENHANCED GPS WITH SAME METHOD AS RIDEBOOKING FORM**
+    console.log('🔄 Starting ride request polling...');
+    shouldPollRequests.current = true;
+    
+    const checkRequests = async () => {
+      if (!shouldPollRequests.current || activeTrip) {
+        console.log('🛑 Skipping ride request check - have active trip or stopped');
+        return;
+      }
+
+      const result = await driverService.checkForRideRequests();
+      if (result.success && result.requests.length > 0 && !activeTrip) {
+        console.log(`📨 Found ${result.requests.length} pending ride requests`);
+        setPendingRequests(result.requests);
+      } else {
+        setPendingRequests([]);
+      }
+    };
+
+    checkRequests();
+    rideRequestInterval.current = setInterval(checkRequests, 5000);
+  }, [isOnline, authError, activeTrip]);
+
+  const stopRideRequestPolling = useCallback(() => {
+    console.log('🛑 Stopping ride request polling');
+    shouldPollRequests.current = false;
+    
+    if (rideRequestInterval.current) {
+      clearInterval(rideRequestInterval.current);
+      rideRequestInterval.current = null;
+    }
+    setPendingRequests([]);
+  }, []);
+
+  // Handle Accept Ride Request
+  const handleAcceptRequest = async (tripId) => {
+    setIsProcessingRequest(true);
+    
+    try {
+      console.log('🚀 Processing ride acceptance for trip:', tripId);
+      
+      if (!driverService.checkDriverPermissions()) {
+        setAuthError('Please login as a driver to accept rides');
+        return;
+      }
+      
+      const result = await driverService.acceptRideRequest(tripId);
+      
+      if (result.success) {
+        console.log('✅ Ride request accepted successfully');
+        
+        setActiveTrip(result.trip);
+        stopRideRequestPolling();
+        setPendingRequests([]);
+        
+        console.log('🛑 Stopped ride request polling - trip accepted');
+        setAuthError(null);
+        
+      } else {
+        console.error('❌ Failed to accept ride request:', result.error);
+        
+        if (result.userMessage) {
+          setAuthError(result.userMessage);
+        }
+        
+        if (result.error.includes('AUTHORIZATION') || result.error.includes('403')) {
+          console.warn('🔑 Authorization issue detected, may need re-authentication');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error accepting ride request:', error);
+      setAuthError('Failed to accept ride. Please try again or re-login.');
+    } finally {
+      setIsProcessingRequest(false);
+    }
+  };
+
+  // Handle Reject Ride Request
+  const handleRejectRequest = async (tripId) => {
+    setIsProcessingRequest(true);
+    
+    try {
+      const result = await driverService.rejectRideRequest(tripId, 'Driver declined');
+      
+      if (result.success) {
+        console.log('✅ Ride request rejected successfully');
+        setPendingRequests(prev => prev.filter(req => req._id !== tripId));
+      } else {
+        console.error('❌ Failed to reject ride request:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error rejecting ride request:', error);
+    } finally {
+      setIsProcessingRequest(false);
+    }
+  };
+
+  // Handle trip status updates
+  const handleUpdateTripStatus = async (newStatus) => {
+    if (!activeTrip) return;
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips/${activeTrip._id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${driverService.getAuthToken()}`,
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (response.ok) {
+        const updatedTrip = { ...activeTrip, status: newStatus };
+        if (newStatus === 'arrived') {
+          updatedTrip.arrivedAt = new Date().toISOString();
+        } else if (newStatus === 'started') {
+          updatedTrip.startedAt = new Date().toISOString();
+        }
+        setActiveTrip(updatedTrip);
+        console.log(`✅ Trip status updated to: ${newStatus}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating trip status:', error);
+    }
+  };
+
+  // Handle trip completion
+  const handleCompleteTrip = async () => {
+    if (!activeTrip) return;
+
+    try {
+      await handleUpdateTripStatus('completed');
+      
+      setActiveTrip(null);
+      shouldPollRequests.current = true;
+      
+      if (isOnline && !authError) {
+        startRideRequestPolling();
+        console.log('🔄 Restarted ride request polling - trip completed');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error completing trip:', error);
+    }
+  };
+
+  // Start/Stop Updates When Online Status Changes
   useEffect(() => {
-    if (!isOnline || !isHydrated || !isGoogleMapsReady) {
+    if (isOnline && driverLocation && !authError) {
+      startLocationUpdates();
+      if (!activeTrip) {
+        startRideRequestPolling();
+      }
+    } else {
+      stopLocationUpdates();
+      stopRideRequestPolling();
+    }
+
+    return () => {
+      stopLocationUpdates();
+      stopRideRequestPolling();
+    };
+  }, [isOnline, driverLocation, startLocationUpdates, stopLocationUpdates, startRideRequestPolling, stopRideRequestPolling, authError, activeTrip]);
+
+  // Enhanced GPS with Backend Integration
+  useEffect(() => {
+    if (!isOnline || !isHydrated) {
       setDriverLocation(null);
       setLocationAccuracy(null);
-      setGpsStatus('Offline');
-      setGpsError(null);
+      setBackendStatus({ connected: false, lastUpdate: null, retryCount: 0 });
+      stopLocationUpdates();
+      
+      if (watchId.current && typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId.current);
+        watchId.current = null;
+      }
+      
+      return;
+    }
+
+    if (!driverService.checkDriverPermissions()) {
+      setAuthError('Driver authentication required. Please log in as a driver.');
       return;
     }
 
     setIsGettingLocation(true);
-    setGpsStatus('🛰️ Getting GPS location...');
-    setGpsError(null);
+    setAuthError(null);
     
-    // **ENHANCED GPS ACQUISITION (same as RideBookingForm)**
     const getEnhancedGPS = async () => {
       try {
-        console.log('🚀 Driver GPS acquisition (same as RideBookingForm)...');
+        console.log('🚀 Driver GPS acquisition starting...');
         
-        // **CLEAR GPS CACHE FOR FRESH READING**
-        gpsService.clearCache();
+        gpsUtils.clearCache();
         
-        // **MULTIPLE GPS ATTEMPTS FOR BEST ACCURACY**
         let bestPosition = null;
         let bestAccuracy = Infinity;
         
@@ -177,8 +1411,8 @@ function DriverPageContent() {
                   reject(err);
                 },
                 {
-                  enableHighAccuracy: attempt === 2, // **First quick, second accurate**
-                  maximumAge: 0, // **NO CACHE**
+                  enableHighAccuracy: attempt === 2,
+                  maximumAge: 0,
                   timeout: attempt === 1 ? 10000 : 15000
                 }
               );
@@ -186,20 +1420,17 @@ function DriverPageContent() {
 
             console.log(`📡 Driver Attempt ${attempt}: ±${position.coords.accuracy}m at ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`);
 
-            // **KEEP MOST ACCURATE READING**
             if (position.coords.accuracy < bestAccuracy) {
               bestPosition = position;
               bestAccuracy = position.coords.accuracy;
               console.log(`✅ Driver: New best accuracy: ±${bestAccuracy}m`);
             }
 
-            // **EXCELLENT ACCURACY EARLY EXIT**
             if (bestAccuracy <= 20) {
               console.log(`🎯 Driver: Excellent accuracy achieved early: ±${bestAccuracy}m`);
               break;
             }
 
-            // **BRIEF PAUSE BETWEEN ATTEMPTS**
             if (attempt < 2) {
               await new Promise(resolve => setTimeout(resolve, 1000));
             }
@@ -216,97 +1447,38 @@ function DriverPageContent() {
           throw new Error('All GPS attempts failed');
         }
 
-        // **SET DRIVER COORDINATES**
         const driverCoords = {
           lat: bestPosition.coords.latitude,
-          lng: bestPosition.coords.longitude
+          lng: bestPosition.coords.longitude,
+          accuracy: bestPosition.coords.accuracy
         };
         
         setDriverLocation(driverCoords);
         setLocationAccuracy(bestPosition.coords.accuracy);
         
-        // **🔥 ENHANCED CONSOLE LOG - DRIVER COORDINATES 🔥**
-        console.log('🚗📍 DRIVER PAGE - COORDINATES FETCHED:');
-        console.log('=====================================');
-        console.log('📍 DRIVER GPS COORDINATES:');
+        console.log('🚗📍 DRIVER GPS COORDINATES:');
         console.log(`   Latitude:  ${driverCoords.lat}`);
         console.log(`   Longitude: ${driverCoords.lng}`);
-        console.log(`   Precision: ${driverCoords.lat.toFixed(8)}, ${driverCoords.lng.toFixed(8)}`);
         console.log(`   Accuracy:  ±${Math.round(bestPosition.coords.accuracy)}m`);
-        console.log(`   Status:    ${gpsService.getAccuracyStatus(bestPosition.coords.accuracy)}`);
-        console.log(`   Timestamp: ${new Date().toLocaleTimeString()}`);
-        console.log(`   Source:    Driver Page GPS (same method as RideBookingForm)`);
-        console.log('=====================================');
 
-        const accuracyStatus = gpsService.getAccuracyStatus(bestPosition.coords.accuracy);
-        let statusEmoji = '';
-        switch (accuracyStatus) {
-          case 'Excellent': statusEmoji = '🎯'; break;
-          case 'Very Good': statusEmoji = '✅'; break;
-          case 'Good': statusEmoji = '✅'; break;
-          case 'Fair': statusEmoji = '⚠️'; break;
-          case 'City-level': statusEmoji = '🏙️'; break;
-          case 'Area-level': statusEmoji = '🗺️'; break;
-          default: statusEmoji = '📍'; break;
-        }
+        await sendLocationToBackend(driverCoords);
         
-        setGpsStatus(`${statusEmoji} GPS ${accuracyStatus} - Driver Location Active`);
-        setGpsError(null);
-        
-        console.log(`✅ Driver GPS success: ${accuracyStatus} (±${Math.round(bestPosition.coords.accuracy)}m)`);
+        console.log(`✅ Driver GPS success: ±${Math.round(bestPosition.coords.accuracy)}m`);
 
       } catch (error) {
         console.error('❌ Driver GPS failed:', error);
-        handleGPSError(error);
+        setAuthError('GPS Error: Unable to get your location. Please check device settings.');
       } finally {
         setIsGettingLocation(false);
       }
     };
 
-    const handleGPSError = (error) => {
-      // **ENHANCED ERROR LOGGING**
-      console.log('❌📍 DRIVER PAGE - GPS FAILED:');
-      console.log('=====================================');
-      console.log(`   Error: ${error.message}`);
-      console.log(`   Code:  ${error.code || 'N/A'}`);
-      console.log(`   Time:  ${new Date().toLocaleTimeString()}`);
-      console.log('=====================================');
-      
-      let userFriendlyMessage = '';
-      let troubleshootingMessage = '';
-      
-      if (error.code === 1 || error.message.includes('denied')) {
-        userFriendlyMessage = '❌ Location Access Denied';
-        troubleshootingMessage = 'Please enable location permissions in your browser settings and refresh the page.';
-      } else if (error.code === 2 || error.message.includes('unavailable')) {
-        userFriendlyMessage = '📡 GPS Satellites Unavailable';
-        troubleshootingMessage = 'Move to an outdoor area with clear sky visibility for better GPS reception.';
-      } else if (error.code === 3 || error.message.includes('timeout')) {
-        userFriendlyMessage = '⏱️ GPS Timeout';
-        troubleshootingMessage = 'GPS is taking too long. Try moving outdoors and ensure location services are enabled.';
-      } else {
-        userFriendlyMessage = '❌ GPS Error';
-        troubleshootingMessage = 'Unable to get your location. Please check your device settings and try again.';
-      }
-      
-      setGpsStatus(userFriendlyMessage);
-      setGpsError({
-        message: userFriendlyMessage,
-        troubleshooting: troubleshootingMessage,
-        canRetry: true
-      });
-    };
-
-    // Start enhanced GPS acquisition
     getEnhancedGPS();
 
-    // **CONTINUOUS TRACKING: Simple watchPosition for updates**
-    let watchId = null;
     const startWatching = () => {
       if (typeof window !== 'undefined' && navigator.geolocation) {
-        watchId = navigator.geolocation.watchPosition(
+        watchId.current = navigator.geolocation.watchPosition(
           (position) => {
-            // Only update if significantly different or more accurate
             const newLat = position.coords.latitude;
             const newLng = position.coords.longitude;
             const newAccuracy = position.coords.accuracy;
@@ -316,7 +1488,12 @@ function DriverPageContent() {
                 Math.abs(newLng - driverLocation.lng) > 0.0001 ||
                 newAccuracy < (locationAccuracy || Infinity) * 0.8) {
               
-              const updatedLocation = { lat: newLat, lng: newLng };
+              const updatedLocation = { 
+                lat: newLat, 
+                lng: newLng, 
+                accuracy: newAccuracy 
+              };
+              
               setDriverLocation(updatedLocation);
               setLocationAccuracy(newAccuracy);
               
@@ -325,10 +1502,9 @@ function DriverPageContent() {
           },
           (error) => {
             console.warn('📡 Watch GPS error:', error.message);
-            // Don't show errors for continuous watching
           },
           {
-            enableHighAccuracy: false, // **FASTER: Use network location for updates**
+            enableHighAccuracy: false,
             maximumAge: 30000,
             timeout: 15000
           }
@@ -336,57 +1512,147 @@ function DriverPageContent() {
       }
     };
 
-    // Start watching after initial location
     setTimeout(startWatching, 5000);
 
     return () => {
-      if (watchId && typeof window !== 'undefined' && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchId);
+      if (watchId.current && typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId.current);
+        watchId.current = null;
       }
+      stopLocationUpdates();
     };
-  }, [isOnline, isHydrated, isGoogleMapsReady]);
+  }, [isOnline, isHydrated, sendLocationToBackend, stopLocationUpdates]);
 
-  const handleToggleOnline = () => {
-    if (gpsError && !isOnline) {
+  // Handle online/offline toggle with backend API
+  const handleToggleOnline = async () => {
+    if (authError) {
       return;
     }
     
-    setIsOnline(prev => !prev);
-    if (isOnline) {
-      setTripDetails(null);
-      setRoute(null);
-      setGpsError(null);
+    setIsUpdatingStatus(true);
+    
+    try {
+      const newOnlineStatus = !isOnline;
+      console.log(`🔄 Toggling driver status to: ${newOnlineStatus ? 'ONLINE' : 'OFFLINE'}`);
+      
+      const result = await driverService.setDriverStatus(newOnlineStatus);
+      
+      if (result.success) {
+        setIsOnline(newOnlineStatus);
+        localStorage.setItem('driverOnlineStatus', JSON.stringify(newOnlineStatus));
+        
+        if (!newOnlineStatus) {
+          setDriverLocation(null);
+          setLocationAccuracy(null);
+          setBackendStatus({ connected: false, lastUpdate: null, retryCount: 0 });
+          stopLocationUpdates();
+          stopRideRequestPolling();
+          setActiveTrip(null);
+        }
+        
+        console.log(`✅ Driver status successfully updated to: ${newOnlineStatus ? 'ONLINE' : 'OFFLINE'}`);
+      } else {
+        console.error('❌ Failed to update driver status:', result.error);
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to update driver status:', error);
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
-  const handleGPSRetry = () => {
-    console.log('🔄 DRIVER PAGE - GPS RETRY INITIATED');
-    console.log('=====================================');
-    console.log('   Action: Retrying GPS with enhanced method');
-    console.log('   Time:   ' + new Date().toLocaleTimeString());
-    console.log('=====================================');
+  // ✅ FIXED: Get navigation coordinates based on trip status (with backend status mapping)  
+  const getNavigationCoordinates = () => {
+    if (!activeTrip) return null;
+
+    console.log('🗺️ Getting navigation coordinates for trip status:', activeTrip.status);
+    console.log('🚗 Driver location:', driverLocation);
+    console.log('📍 Trip locations:', {
+      pickup: activeTrip.pickupLocation?.coordinates,
+      dropoff: activeTrip.dropoffLocation?.coordinates,
+      stops: activeTrip.stops?.length || 0
+    });
+
+    // Extract coordinates safely
+    const pickup = activeTrip.pickupLocation?.coordinates 
+      ? { lat: activeTrip.pickupLocation.coordinates[1], lng: activeTrip.pickupLocation.coordinates[0] }
+      : null;
+      
+    const dropoff = activeTrip.dropoffLocation?.coordinates
+      ? { lat: activeTrip.dropoffLocation.coordinates[1], lng: activeTrip.dropoffLocation.coordinates[0] }
+      : null;
+
+    const stops = activeTrip.stops?.map(stop => ({
+      lat: stop.coordinates[1], 
+      lng: stop.coordinates[0]
+    })) || [];
+
+    // ✅ FIXED: Handle both frontend and backend status values
+    const normalizedStatus = activeTrip.status?.toLowerCase();
     
-    setGpsError(null);
-    setGpsStatus('🛰️ Retrying GPS...');
-    
-    // Force reload by toggling online status
-    setIsOnline(false);
-    setTimeout(() => setIsOnline(true), 500);
+    switch (normalizedStatus) {
+      case 'accepted':
+      case 'trip_accepted':
+        console.log('📍 Navigation: Driver → Pickup Location');
+        return {
+          pickup: driverLocation,
+          drop: pickup,
+          stops: [],
+          showRoute: true,
+          routeType: 'pickup',
+          showDriverPin: true
+        };
+        
+      case 'arrived':
+      case 'trip_arrived':
+        console.log('🗺️ Navigation: Complete Trip Route Overview');
+        return {
+          pickup: pickup,
+          drop: dropoff,
+          stops: stops,
+          showRoute: true,
+          showMultipleRoutes: false,
+          routeType: 'complete_overview',
+          showDriverPin: false  // Hide driver pin in overview mode
+        };
+        
+      case 'started':
+      case 'trip_started':  // ✅ FIXED: Handle backend status
+        console.log('🎯 Navigation: Pickup → Destination (with stops)');
+        return {
+          pickup: pickup,
+          drop: dropoff,
+          stops: stops,
+          showRoute: true,
+          routeType: 'destination',
+          showDriverPin: true
+        };
+        
+      default:
+        console.log('❓ Unknown trip status, showing basic navigation:', activeTrip.status);
+        // ✅ FALLBACK: Show basic navigation even for unknown statuses
+        return {
+          pickup: pickup || driverLocation,
+          drop: dropoff,
+          stops: stops,
+          showRoute: true,
+          routeType: 'fallback',
+          showDriverPin: true
+        };
+    }
   };
 
-  // Show loading state until hydrated AND Google Maps ready
-  if (!isHydrated || !isGoogleMapsReady) {
+  if (!isHydrated) {
     return (
       <>
         <div className="w-full lg:w-1/2 overflow-y-auto">
           <div className="max-w-2xl mx-auto p-6 md:p-10">
             <div className="text-center pt-10">
               <h1 className="text-2xl font-semibold">Loading...</h1>
-              <p className="text-gray-500 mt-2 mb-6">
-                {!isHydrated ? 'Initializing driver interface...' : 'Initializing Google Maps...'}
-              </p>
+              <p className="text-gray-500 mt-2 mb-6">Synchronizing with backend...</p>
               <div className="w-full py-3 bg-gray-300 text-gray-600 rounded-lg animate-pulse">
-                {!isHydrated ? 'Loading...' : 'Google Maps Loading...'}
+                Loading driver status...
               </div>
             </div>
           </div>
@@ -400,87 +1666,98 @@ function DriverPageContent() {
     );
   }
 
+  const navCoords = getNavigationCoordinates();
+
   return (
     <>
-      {/* Left Half: UI Panel - EXACT ORIGINAL */}
       <div className="w-full lg:w-1/2 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-6 md:p-10">
-          <div className="text-center pt-10">
-            <h1 className="text-2xl font-semibold">
-              {isOnline ? "You are Online" : "You are Offline"}
-            </h1>
-            <p className="text-gray-500 mt-2 mb-6">
-              {isOnline ? "Searching for nearby trips..." : "You will not receive trip requests."}
-            </p>
-            
-            {/* GPS Status Card */}
-            {isOnline && (
-              <GPSStatusCard 
-                gpsStatus={gpsStatus}
-                locationAccuracy={locationAccuracy}
-                hasError={!!gpsError}
-                onRetry={handleGPSRetry}
-                coordinates={driverLocation}
-              />
-            )}
-            
-            {/* Show offline message when not online */}
-            {!isOnline && (
-              <div className="mb-6 text-sm text-gray-500 bg-gray-100 p-3 rounded-lg">
-                📱 Go online to start receiving trip requests and enable GPS tracking
-              </div>
-            )}
-            
-            {/* Warning when GPS has error but trying to go online */}
-            {gpsError && !isOnline && (
-              <div className="mb-6 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-lg">
-                ⚠️ GPS needs to be working before you can go online. Please fix GPS issues first.
-              </div>
-            )}
-            
-            {/* Loading state */}
-            {isGettingLocation && (
-              <div className="mb-6 text-sm text-blue-700 bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                <span>Getting your location with enhanced GPS...</span>
-              </div>
-            )}
-            
-            <OnlineOfflineToggle 
-              isOnline={isOnline} 
-              onToggle={handleToggleOnline}
-              disabled={(gpsError && !isOnline) || isGettingLocation}
+          {/* Show Active Trip, Ride Requests, or Online Status */}
+          {activeTrip ? (
+            <ActiveTripCard
+              trip={activeTrip}
+              driverLocation={driverLocation}
+              onCompleteTrip={handleCompleteTrip}
+              onUpdateStatus={handleUpdateTripStatus}
             />
-            
-            {/* Additional driver info when online with good GPS */}
-            {isOnline && driverLocation && !gpsError && (
-              <div className="mt-6 text-left bg-green-50 border border-green-200 p-4 rounded-lg">
-                <h3 className="font-medium text-green-800 mb-2">🚗 Driver Status</h3>
-                <div className="text-sm text-green-700 space-y-1">
-                  <p>📍 Location: Enhanced GPS tracking active</p>
-                  <p>📡 GPS: {Math.round(locationAccuracy)}m accuracy</p>
-                  <p>🔍 Status: Available for trips</p>
-                  <p className="font-mono text-xs">
-                    {driverLocation.lat.toFixed(6)}, {driverLocation.lng.toFixed(6)}
-                  </p>
-                  <p className="text-xs text-green-600 mt-2">
-                    🔍 Check console for detailed coordinate logs
-                  </p>
+          ) : pendingRequests.length > 0 ? (
+            <div className="space-y-4">
+              {pendingRequests.map((request) => (
+                <RideRequestCard
+                  key={request._id}
+                  request={request}
+                  onAccept={handleAcceptRequest}
+                  onReject={handleRejectRequest}
+                  isProcessing={isProcessingRequest}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center pt-10">
+              <h1 className="text-2xl font-semibold">
+                {isOnline ? "You are Online" : "You are Offline"}
+              </h1>
+              <p className="text-gray-500 mt-2 mb-6">
+                {isOnline ? "Searching for nearby trips..." : "You will not receive trip requests."}
+              </p>
+              
+              {!isOnline && (
+                <div className="mb-6 text-sm text-gray-500 bg-gray-100 p-3 rounded-lg">
+                  📱 Go online to start receiving trip requests and enable GPS tracking
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+              
+              {isOnline && driverLocation && (
+                <div className="mb-6 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">
+                  📍 GPS Active - Location accuracy: ±{Math.round(locationAccuracy)}m
+                  <div className="mt-2 text-xs">
+                    🔍 Monitoring for ride requests...
+                  </div>
+                </div>
+              )}
+              
+              {authError && (
+                <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">
+                  🔐 {authError}
+                </div>
+              )}
+              
+              {isGettingLocation && isOnline && (
+                <div className="mb-6 text-sm text-blue-700 bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span>Getting your GPS location...</span>
+                </div>
+              )}
+              
+              <OnlineOfflineToggle 
+                isOnline={isOnline} 
+                onToggle={handleToggleOnline}
+                disabled={!!authError}
+                isUpdating={isUpdatingStatus}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Right Half: Map Display - EXACT ORIGINAL */}
+      {/* ✅ ENHANCED: Map with dynamic route updates */}
       <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen lg:sticky lg:top-0">
-        <LeafletMap 
-          key={`driver-map-${driverLocation ? driverLocation.lat + driverLocation.lng : 'no-location'}`}
-          pickup={driverLocation}
-          drop={null}
-          route={null}
-          isInteractive={false}
+        <GoogleMap 
+          key={`driver-map-${driverLocation ? driverLocation.lat + driverLocation.lng : 'no-location'}-${activeTrip ? activeTrip.status : 'idle'}`}
+          pickup={navCoords ? navCoords.pickup : driverLocation}
+          drop={navCoords ? navCoords.drop : null}
+          stops={navCoords ? navCoords.stops : []}
+          route={navCoords && navCoords.showRoute ? { 
+            waypoints: navCoords.stops || [], 
+            avoidTolls: false, 
+            avoidHighways: false 
+          } : null}
+          userType="driver"
+          driverLocation={driverLocation}
+          isInteractive={true}
+          showRoute={navCoords ? navCoords.showRoute : false}
+          showDriverPin={navCoords ? navCoords.showDriverPin : true}
+          showMultipleRoutes={navCoords ? navCoords.showMultipleRoutes : false}
         />
       </div>
     </>
@@ -490,7 +1767,7 @@ function DriverPageContent() {
 export default function DriverPage() {
   return (
     <main className="min-h-screen bg-white text-gray-900 flex flex-col lg:flex-row">
-      <Suspense fallback={<div className="w-full flex items-center justify-center min-h-screen"><p>Loading...</p></div>}>
+      <Suspense fallback={<div className="w-full flex items-center justify-center min-h-screen"><p>Loading Driver Interface...</p></div>}>
         <DriverPageContent />
       </Suspense>
     </main>

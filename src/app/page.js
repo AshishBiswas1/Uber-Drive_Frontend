@@ -1,8 +1,10 @@
-// LandingPage.js
+// LandingPage.js - ENHANCED WITH ROLE VALIDATION & ERROR POPUP
 'use client';
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+
 
 function CheckItem({ children }) {
   return (
@@ -51,22 +53,148 @@ function PriceCard({ title, price, cta, features, highlight = false, onNavigate 
   );
 }
 
+// 🚨 NEW: Custom Error Popup Component
+function ErrorPopup({ isOpen, onClose, message, title }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+      <div className="relative mx-4 w-full max-w-md transform rounded-xl bg-red-50 border-2 border-red-200 p-6 shadow-2xl transition-all">
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 text-red-400 hover:text-red-600 transition-colors"
+          aria-label="Close error dialog"
+        >
+          <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        {/* Error icon */}
+        <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
+          <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+
+        {/* Error content */}
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-red-900 mb-2">
+            {title}
+          </h3>
+          <p className="text-red-700 mb-6">
+            {message}
+          </p>
+
+          {/* Action buttons */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={onClose}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
+            >
+              Got it
+            </button>
+            <button
+              onClick={() => {
+                onClose();
+                // Optional: redirect to login to switch roles
+                window.location.href = '/authentication/login';
+              }}
+              className="px-6 py-2 bg-white text-red-600 border border-red-300 rounded-lg hover:bg-red-50 font-medium transition-colors"
+            >
+              Switch Account
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OverviewPage() {
   const router = useRouter();
+  
+  // 🔧 NEW: State for error popup
+  const [errorPopup, setErrorPopup] = useState({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
 
-  const isLoggedIn = () => {
+  // 🔧 ENHANCED: Check if logged in and get user data
+  const getAuthData = () => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem('isUserLoggedIn') === 'true';
+      // Check JWT cookie first
+      const jwt = document.cookie.split('; ').find(row => row.startsWith('jwt='));
+      
+      // Check localStorage for login status and role
+      const isLoggedIn = localStorage.getItem('isUserLoggedIn') === 'true';
+      const userRole = localStorage.getItem('user_role');
+      const userName = localStorage.getItem('user_name');
+      
+      return {
+        isLoggedIn: !!jwt || isLoggedIn,
+        userRole: userRole,
+        userName: userName || 'User'
+      };
     }
-    return false;
+    return { isLoggedIn: false, userRole: null, userName: 'User' };
   };
 
+  // 🔧 ENHANCED: Handle navigation with role validation
   const handleNavigation = (path) => {
-    if (isLoggedIn()) {
-      router.push(path);
-    } else {
+    const authData = getAuthData();
+    
+    console.log('🔍 Navigation attempt:', { path, authData });
+
+    // If not logged in, redirect to login
+    if (!authData.isLoggedIn) {
+      console.log('❌ Not logged in, redirecting to login');
       router.push('/authentication/login');
+      return;
     }
+
+    // If logged in, check role permissions
+    const targetRole = path.includes('/rider') ? 'rider' : 'driver';
+    const currentRole = authData.userRole;
+
+    console.log('🎯 Role check:', { targetRole, currentRole });
+
+    // 🚨 ROLE VALIDATION: Check if user has correct role
+    if (currentRole && currentRole !== targetRole) {
+      const errorMessages = {
+        rider: {
+          title: 'Access Denied - Rider Only',
+          message: `You are currently logged in as a ${currentRole}. This page is only accessible to riders. Please switch to a rider account or create a new rider account to continue.`
+        },
+        driver: {
+          title: 'Access Denied - Driver Only', 
+          message: `You are currently logged in as a ${currentRole}. This page is only accessible to drivers. Please switch to a driver account or create a new driver account to continue.`
+        }
+      };
+
+      console.log('❌ Role mismatch, showing error popup');
+      setErrorPopup({
+        isOpen: true,
+        title: errorMessages[targetRole].title,
+        message: errorMessages[targetRole].message
+      });
+      return;
+    }
+
+    // If role matches or no specific role restrictions, proceed
+    console.log('✅ Role validation passed, navigating to:', path);
+    router.push(path);
+  };
+
+  // 🔧 NEW: Close error popup
+  const closeErrorPopup = () => {
+    setErrorPopup({
+      isOpen: false,
+      title: '',
+      message: ''
+    });
   };
 
   return (
@@ -101,8 +229,18 @@ export default function OverviewPage() {
               Smarter rides for riders and flexible earnings for drivers—reliable, safe, and fast. Built with live tracking, upfront pricing, and 24/7 in‑app support.
             </p>
             <div className="mt-8 flex flex-wrap gap-4 hero-buttons">
-              <button onClick={() => handleNavigation('/driver')} className="btn bg-gray-900 text-white hover:bg-gray-800">Driver</button>
-              <button onClick={() => handleNavigation('/rider')} className="btn btn-primary">Rider</button>
+              <button 
+                onClick={() => handleNavigation('/driver')} 
+                className="btn bg-gray-900 text-white hover:bg-gray-800 transition-all duration-200 hover:shadow-lg"
+              >
+                🚙 Driver
+              </button>
+              <button 
+                onClick={() => handleNavigation('/rider')} 
+                className="btn btn-primary transition-all duration-200 hover:shadow-lg"
+              >
+                🚗 Rider
+              </button>
             </div>
           </div>
         </div>
@@ -237,11 +375,29 @@ export default function OverviewPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
           <p className="hidden text-[13px] text-gray-600 md:block">Ready to ride or drive with RideFlex Pro?</p>
           <div className="ml-auto flex gap-3">
-            <button onClick={() => handleNavigation('/driver')} className="btn bg-gray-900 text-white hover:bg-gray-800">Become a Driver</button>
-            <button onClick={() => handleNavigation('/rider')} className="btn btn-primary">Book a Ride</button>
+            <button 
+              onClick={() => handleNavigation('/driver')} 
+              className="btn bg-gray-900 text-white hover:bg-gray-800 transition-all duration-200 hover:shadow-lg"
+            >
+              🚙 Become a Driver
+            </button>
+            <button 
+              onClick={() => handleNavigation('/rider')} 
+              className="btn btn-primary transition-all duration-200 hover:shadow-lg"
+            >
+              🚗 Book a Ride
+            </button>
           </div>
         </div>
       </div>
+
+      {/* 🚨 NEW: Error Popup Modal */}
+      <ErrorPopup
+        isOpen={errorPopup.isOpen}
+        onClose={closeErrorPopup}
+        title={errorPopup.title}
+        message={errorPopup.message}
+      />
     </main>
   );
 }

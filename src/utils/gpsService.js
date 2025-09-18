@@ -1,208 +1,24 @@
-// utils/gpsService.js - FIXED VERSION
-import { googleMapsLoader } from './googleMapsLoader';
+// src/utils/gpsService.js - FIXED WITH TIMEOUT HANDLING
+'use client';
 
-class OutdoorGPSService {
+class GPSService {
   constructor() {
-    this.googleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
-    this.isGoogleMapsReady = false;
+    this.geocodeCache = new Map();
+    this.isWatching = false;
+    this.watchId = null;
+    this.lastKnownPosition = null;
+    this.onLocationUpdate = null;
+    this.googleMapsReady = false;
+    this.directionsService = null;
     this.placesService = null;
-    this.autocompleteService = null;
-    this.cache = new Map();
-    this.geocoder = null;
-    
-    console.log('🌍 GPS Service initialized');
+    this.initializationPromise = null;
   }
 
-  // -------- Google Maps API Initialization (Modern Method) --------
-  async initGoogleMaps() {
-    if (typeof window === 'undefined') return false;
-    
-    try {
-      console.log('🗺️ Initializing Google Maps with modern APIs...');
-      
-      // **USE SINGLETON LOADER**
-      await googleMapsLoader.loadGoogleMaps(this.googleKey);
-      
-      if (googleMapsLoader.isGoogleMapsLoaded()) {
-        await this.initModernGoogleServices();
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.warn('Google Maps API failed to load:', error);
-      return false;
-    }
+  clearCache() {
+    console.log('🧹 GPS cache cleared');
+    this.geocodeCache.clear();
   }
 
-  // **MODERN GOOGLE SERVICES INITIALIZATION**
-  async initModernGoogleServices() {
-    try {
-      console.log('🔧 Initializing modern Google services...');
-
-      // Initialize Geocoder (still current)
-      this.geocoder = new window.google.maps.Geocoder();
-      
-      // **MODERN APPROACH: Use Place API instead of deprecated services**
-      // Note: We'll use the new Place API for search functionality
-      this.isGoogleMapsReady = true;
-      
-      console.log('✅ Modern Google services initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize modern Google services:', error);
-      this.isGoogleMapsReady = false;
-    }
-  }
-
-  // **🔧 FIXED: MODERN PLACE SEARCH (without invalid radius parameter)**
-  async searchAddress(query, biasAt = null) {
-    if (!this.isGoogleMapsReady) {
-      await this.initGoogleMaps();
-    }
-
-    if (!query || query.length < 3) {
-      return [];
-    }
-
-    const cacheKey = `search_${query}_${biasAt ? biasAt.join(',') : 'no-bias'}`;
-    if (this.cache.has(cacheKey)) {
-      console.log(`📝 Using cached search result for: ${query}`);
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      console.log(`🔍 Modern place search for: "${query}"`);
-      
-      // **ENHANCED: Try Google Places API first, then fallback to Geocoder**
-      
-      // **METHOD 1: Try Google Places Text Search (more accurate for stops)**
-      try {
-        if (window.google?.maps?.places?.PlacesService) {
-          const service = new window.google.maps.places.PlacesService(document.createElement('div'));
-          const placesResults = await new Promise((resolve, reject) => {
-            const request = {
-              query: query,
-              fields: ['place_id', 'name', 'formatted_address', 'geometry', 'types']
-            };
-
-            // **FIXED: Use proper locationBias instead of invalid radius**
-            if (biasAt && biasAt.length === 2) {
-              request.locationBias = {
-                center: new window.google.maps.LatLng(biasAt[0], biasAt[1]),
-                radius: 50000 // This is valid for Places API
-              };
-            }
-
-            service.textSearch(request, (results, status) => {
-              if (status === 'OK' && results) {
-                resolve(results);
-              } else {
-                console.warn('Places Text Search failed:', status);
-                resolve([]);
-              }
-            });
-          });
-
-          if (placesResults.length > 0) {
-            const transformedResults = placesResults.map(result => ({
-              display_name: result.formatted_address || result.name,
-              lat: result.geometry.location.lat(),
-              lng: result.geometry.location.lng(),
-              types: result.types,
-              source: 'Google Places',
-              place_id: result.place_id
-            }));
-
-            this.cache.set(cacheKey, transformedResults);
-            console.log(`✅ Found ${transformedResults.length} Places results for: ${query}`);
-            return transformedResults;
-          }
-        }
-      } catch (placesError) {
-        console.warn('Google Places search failed, falling back to Geocoder:', placesError);
-      }
-
-      // **METHOD 2: Fallback to Geocoder (FIXED - removed invalid radius)**
-      const results = await new Promise((resolve, reject) => {
-        const request = {
-          address: query,
-          componentRestrictions: {}, // Can add country restrictions if needed
-        };
-
-        // **🔧 FIXED: Add location bias WITHOUT radius (Geocoder doesn't support radius)**
-        if (biasAt && biasAt.length === 2) {
-          request.location = new window.google.maps.LatLng(biasAt[0], biasAt[1]);
-          // **REMOVED: request.radius = 50000; ← This was causing InvalidValueError**
-        }
-
-        this.geocoder.geocode(request, (results, status) => {
-          if (status === 'OK' && results) {
-            resolve(results);
-          } else {
-            console.warn('Geocoding failed:', status);
-            resolve([]);
-          }
-        });
-      });
-
-      // Transform results to consistent format
-      const transformedResults = results.map(result => ({
-        display_name: result.formatted_address,
-        lat: result.geometry.location.lat(),
-        lng: result.geometry.location.lng(),
-        types: result.types,
-        source: 'Google Geocoder',
-        place_id: result.place_id
-      }));
-
-      // Cache results
-      this.cache.set(cacheKey, transformedResults);
-      console.log(`✅ Found ${transformedResults.length} Geocoder results for: ${query}`);
-      
-      return transformedResults;
-    } catch (error) {
-      console.error('Modern place search failed:', error);
-      return [];
-    }
-  }
-
-  // **REVERSE GEOCODING (Updated)**
-  async getLocationName(lat, lng) {
-    if (!this.isGoogleMapsReady) {
-      await this.initGoogleMaps();
-    }
-
-    const cacheKey = `reverse_${lat.toFixed(6)}_${lng.toFixed(6)}`;
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey);
-    }
-
-    try {
-      console.log(`🔍 Reverse geocoding: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-      
-      const results = await new Promise((resolve, reject) => {
-        this.geocoder.geocode(
-          { location: { lat: lat, lng: lng } },
-          (results, status) => {
-            if (status === 'OK' && results && results.length > 0) {
-              resolve(results[0].formatted_address);
-            } else {
-              console.warn('Reverse geocoding failed:', status);
-              resolve(`Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-            }
-          }
-        );
-      });
-
-      this.cache.set(cacheKey, results);
-      return results;
-    } catch (error) {
-      console.error('Reverse geocoding error:', error);
-      return `Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-    }
-  }
-
-  // **GPS ACCURACY STATUS**
   getAccuracyStatus(accuracy) {
     if (accuracy <= 5) return 'Excellent';
     if (accuracy <= 10) return 'Very Good';
@@ -212,12 +28,441 @@ class OutdoorGPSService {
     return 'Area-level';
   }
 
-  // **CLEAR CACHE**
-  clearCache() {
-    this.cache.clear();
-    console.log('🧹 GPS service cache cleared');
+  // ✅ FIXED: Initialize Google Maps with proper timeout and fallback
+  async initGoogleMaps() {
+    // If already initialized, return immediately
+    if (this.googleMapsReady && window.google && window.google.maps) {
+      console.log('✅ Google Maps already ready');
+      return true;
+    }
+
+    // If initialization is already in progress, wait for it
+    if (this.initializationPromise) {
+      console.log('⏳ Google Maps initialization in progress, waiting...');
+      return await this.initializationPromise;
+    }
+
+    // Start new initialization
+    this.initializationPromise = this._performGoogleMapsInit();
+    return await this.initializationPromise;
+  }
+
+  async _performGoogleMapsInit() {
+    if (typeof window === 'undefined') {
+      console.warn('⚠️ Window not available, skipping Google Maps init');
+      return false;
+    }
+
+    try {
+      // Check if already loaded
+      if (window.google && window.google.maps) {
+        this.googleMapsReady = true;
+        this._initializeServices();
+        console.log('✅ Google Maps already loaded');
+        return true;
+      }
+
+      const googleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+      if (!googleKey) {
+        console.error('❌ Google Maps API key not found');
+        return false;
+      }
+
+      console.log('🚀 Loading Google Maps API...');
+
+      // Create promise with timeout
+      const loadPromise = new Promise((resolve, reject) => {
+        // Set timeout first
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ Google Maps loading timeout (10s), continuing anyway...');
+          resolve(false); // Don't reject, just resolve with false
+        }, 10000);
+
+        // Check if script already exists
+        const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`);
+        if (existingScript) {
+          console.log('🔄 Google Maps script already exists, waiting for load...');
+          clearTimeout(timeout);
+          
+          // Check periodically if Google Maps is ready
+          const checkInterval = setInterval(() => {
+            if (window.google && window.google.maps) {
+              clearInterval(checkInterval);
+              clearTimeout(timeout);
+              resolve(true);
+            }
+          }, 100);
+
+          // Fallback timeout for existing script
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            clearTimeout(timeout);
+            resolve(false);
+          }, 5000);
+          
+          return;
+        }
+
+        // Create new script
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&libraries=geometry,places&callback=initGoogleMapsCallback`;
+        script.async = true;
+        script.defer = true;
+
+        // Global callback function
+        window.initGoogleMapsCallback = () => {
+          clearTimeout(timeout);
+          console.log('✅ Google Maps API loaded via callback');
+          resolve(true);
+        };
+
+        script.onload = () => {
+          clearTimeout(timeout);
+          console.log('✅ Google Maps script loaded');
+          // Give it a moment to initialize
+          setTimeout(() => {
+            if (window.google && window.google.maps) {
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          }, 500);
+        };
+
+        script.onerror = () => {
+          clearTimeout(timeout);
+          console.error('❌ Google Maps script failed to load');
+          resolve(false); // Don't reject, continue without Google Maps
+        };
+
+        document.head.appendChild(script);
+      });
+
+      const success = await loadPromise;
+      
+      if (success && window.google && window.google.maps) {
+        this.googleMapsReady = true;
+        this._initializeServices();
+        console.log('✅ Google Maps initialization successful');
+        return true;
+      } else {
+        console.warn('⚠️ Google Maps initialization failed or timed out - continuing without');
+        return false;
+      }
+
+    } catch (error) {
+      console.error('❌ Google Maps initialization error:', error);
+      return false;
+    } finally {
+      // Clean up
+      if (typeof window !== 'undefined' && window.initGoogleMapsCallback) {
+        delete window.initGoogleMapsCallback;
+      }
+      this.initializationPromise = null;
+    }
+  }
+
+  _initializeServices() {
+    try {
+      if (window.google && window.google.maps) {
+        this.directionsService = new window.google.maps.DirectionsService();
+        this.placesService = new window.google.maps.places.PlacesService(
+          document.createElement('div')
+        );
+        console.log('✅ Google Maps services initialized');
+      }
+    } catch (error) {
+      console.error('❌ Error initializing Google Maps services:', error);
+    }
+  }
+
+  // ✅ FIXED: Enhanced start watching with proper error handling
+  startWatching(callback, options = {}) {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      console.error('❌ Geolocation not supported');
+      if (callback) {
+        try {
+          callback(null, new Error('Geolocation not supported'));
+        } catch (callbackError) {
+          console.error('❌ Error in callback:', callbackError);
+        }
+      }
+      return false;
+    }
+
+    if (this.isWatching) {
+      console.log('📍 GPS watching already active');
+      return true;
+    }
+
+    console.log('🚀 Starting GPS watching...');
+    
+    this.onLocationUpdate = callback;
+    
+    const defaultOptions = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000,
+      ...options
+    };
+
+    this.watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!position || !position.coords) {
+          console.warn('⚠️ GPS: Received invalid position object');
+          if (this.onLocationUpdate) {
+            try {
+              this.onLocationUpdate(null, new Error('Invalid position data'));
+            } catch (callbackError) {
+              console.error('❌ Error in GPS callback:', callbackError);
+            }
+          }
+          return;
+        }
+
+        const { coords } = position;
+        
+        if (typeof coords.latitude !== 'number' || 
+            typeof coords.longitude !== 'number' ||
+            isNaN(coords.latitude) || 
+            isNaN(coords.longitude)) {
+          console.warn('⚠️ GPS: Invalid coordinates received:', coords);
+          if (this.onLocationUpdate) {
+            try {
+              this.onLocationUpdate(null, new Error('Invalid coordinates'));
+            } catch (callbackError) {
+              console.error('❌ Error in GPS callback:', callbackError);
+            }
+          }
+          return;
+        }
+
+        const location = {
+          lat: coords.latitude,
+          lng: coords.longitude,
+          accuracy: coords.accuracy || null,
+          timestamp: position.timestamp || Date.now()
+        };
+        
+        this.lastKnownPosition = location;
+        console.log(`📍 GPS Update: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)} (±${Math.round(location.accuracy || 0)}m)`);
+        
+        if (this.onLocationUpdate) {
+          try {
+            this.onLocationUpdate(location, null);
+          } catch (callbackError) {
+            console.error('❌ Error in GPS callback:', callbackError);
+          }
+        }
+      },
+      (error) => {
+        console.error('❌ GPS Error:', error.message);
+        
+        if (this.onLocationUpdate) {
+          try {
+            this.onLocationUpdate(null, error);
+          } catch (callbackError) {
+            console.error('❌ Error in GPS error callback:', callbackError);
+          }
+        }
+      },
+      defaultOptions
+    );
+
+    this.isWatching = true;
+    return true;
+  }
+
+  stopWatching() {
+    if (this.watchId && typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(this.watchId);
+      this.watchId = null;
+      this.isWatching = false;
+      this.onLocationUpdate = null;
+      console.log('🛑 GPS watching stopped');
+    }
+  }
+
+  async getCurrentPosition(options = {}) {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      throw new Error('Geolocation not supported');
+    }
+
+    const defaultOptions = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+      ...options
+    };
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!position || !position.coords) {
+            reject(new Error('Invalid position data'));
+            return;
+          }
+
+          const { coords } = position;
+          
+          if (typeof coords.latitude !== 'number' || 
+              typeof coords.longitude !== 'number' ||
+              isNaN(coords.latitude) || 
+              isNaN(coords.longitude)) {
+            reject(new Error('Invalid coordinates'));
+            return;
+          }
+
+          const location = {
+            lat: coords.latitude,
+            lng: coords.longitude,
+            accuracy: coords.accuracy || null,
+            timestamp: position.timestamp || Date.now()
+          };
+          
+          this.lastKnownPosition = location;
+          console.log(`📍 Current Position: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)} (±${Math.round(location.accuracy || 0)}m)`);
+          resolve(location);
+        },
+        (error) => {
+          console.error('❌ Get Position Error:', error.message);
+          reject(error);
+        },
+        defaultOptions
+      );
+    });
+  }
+
+  async searchAddress(query, biasLocation = null) {
+    if (!query || typeof query !== 'string') {
+      throw new Error('Invalid search query');
+    }
+
+    const cacheKey = `${query}_${biasLocation ? `${biasLocation[0]}_${biasLocation[1]}` : 'none'}`;
+    
+    if (this.geocodeCache.has(cacheKey)) {
+      console.log('📋 Using cached result for:', query);
+      return this.geocodeCache.get(cacheKey);
+    }
+
+    try {
+      let results = [];
+
+      // Try Google Maps first if available
+      if (this.googleMapsReady && window.google && window.google.maps) {
+        try {
+          results = await this.googleGeocode(query, biasLocation);
+          if (results.length > 0) {
+            this.geocodeCache.set(cacheKey, results);
+            return results;
+          }
+        } catch (error) {
+          console.warn('⚠️ Google Geocoding failed:', error.message);
+        }
+      }
+
+      // Fallback to Nominatim
+      results = await this.nominatimGeocode(query, biasLocation);
+      if (results.length > 0) {
+        this.geocodeCache.set(cacheKey, results);
+        return results;
+      }
+
+      throw new Error('No results found');
+
+    } catch (error) {
+      console.error('❌ Address search failed:', error.message);
+      throw error;
+    }
+  }
+
+  async googleGeocode(query, biasLocation = null) {
+    return new Promise((resolve, reject) => {
+      if (!window.google || !window.google.maps) {
+        reject(new Error('Google Maps not available'));
+        return;
+      }
+
+      const geocoder = new window.google.maps.Geocoder();
+      const request = { address: query };
+
+      if (biasLocation && Array.isArray(biasLocation) && biasLocation.length === 2) {
+        request.location = new window.google.maps.LatLng(biasLocation[0], biasLocation[1]);
+        request.radius = 50000;
+      }
+
+      geocoder.geocode(request, (results, status) => {
+        if (status === 'OK' && results && results.length > 0) {
+          const formattedResults = results.slice(0, 5).map(result => ({
+            lat: result.geometry.location.lat(),
+            lng: result.geometry.location.lng(),
+            address: result.formatted_address,
+            source: 'google'
+          }));
+          
+          console.log(`✅ Google found ${formattedResults.length} results for: ${query}`);
+          resolve(formattedResults);
+        } else {
+          reject(new Error(`Google Geocoding failed: ${status}`));
+        }
+      });
+    });
+  }
+
+  async nominatimGeocode(query, biasLocation = null) {
+    try {
+      let url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&q=${encodeURIComponent(query)}`;
+      
+      if (biasLocation && Array.isArray(biasLocation) && biasLocation.length === 2) {
+        url += `&lat=${biasLocation[0]}&lon=${biasLocation[1]}`;
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'RideBookingApp/1.0'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Nominatim HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      const results = data.map(item => ({
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+        address: item.display_name,
+        source: 'nominatim'
+      }));
+
+      console.log(`✅ Nominatim found ${results.length} results for: ${query}`);
+      return results;
+
+    } catch (error) {
+      console.error('❌ Nominatim geocoding failed:', error);
+      throw error;
+    }
+  }
+
+  getLastKnownPosition() {
+    return this.lastKnownPosition;
+  }
+
+  isActivelyWatching() {
+    return this.isWatching;
+  }
+
+  cleanup() {
+    this.stopWatching();
+    this.geocodeCache.clear();
+    this.googleMapsReady = false;
+    this.directionsService = null;
+    this.placesService = null;
+    this.initializationPromise = null;
+    console.log('🧹 GPS Service cleaned up');
   }
 }
 
-// Export singleton instance
-export const gpsService = new OutdoorGPSService();
+const gpsService = new GPSService();
+export { gpsService };

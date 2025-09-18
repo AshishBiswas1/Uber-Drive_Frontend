@@ -1,384 +1,525 @@
+// Map.js - FIXED VERSION WITH PROPER INITIALIZATION
 'use client';
-import { useEffect, useState, useRef } from 'react';
-import { gpsService } from '../utils/gpsService';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
-// Google Maps component
-export default function GoogleMap({ pickup, drop, stops = [], route, isInteractive, userType = "driver" }) {
+// Google Maps component with multiple route support
+export default function GoogleMap({ 
+  pickup, 
+  drop, 
+  stops = [], 
+  route, 
+  routes = [], 
+  selectedRoute = 0, 
+  isInteractive = true, 
+  userType = "rider", 
+  showMultipleRoutes = false,
+  driverLocation = null,
+  showDriverPin = false
+}) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef([]);
-  const routeRenderer = useRef(null);
+  const routeRenderers = useRef([]);
   const directionsService = useRef(null);
+  const initializationInProgress = useRef(false);
   
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeInfo, setRouteInfo] = useState(null);
+  const [initError, setInitError] = useState(null);
 
   const googleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
 
-  // Load Google Maps API
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  // ✅ FIXED: Enhanced Google Maps loading with timeout and error handling
+  const loadGoogleMapsAPI = useCallback(() => {
+    if (typeof window === 'undefined') return Promise.reject('Window undefined');
     
-    // Check if Google Maps is already loaded
+    // Check if already loaded
     if (window.google && window.google.maps) {
-      setIsLoaded(true);
+      console.log('✅ Google Maps already loaded');
+      return Promise.resolve();
+    }
+
+    // Check if already loading
+    if (window.googleMapsLoading) {
+      console.log('⏳ Google Maps loading in progress, waiting...');
+      return window.googleMapsLoading;
+    }
+
+    console.log('🚀 Loading Google Maps API...');
+    
+    // Create loading promise
+    window.googleMapsLoading = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&libraries=geometry,places`;
+      script.async = true;
+      script.defer = true;
+      
+      // Success callback
+      script.onload = () => {
+        console.log('✅ Google Maps API loaded successfully');
+        delete window.googleMapsLoading;
+        resolve();
+      };
+      
+      // Error callback
+      script.onerror = () => {
+        console.error('❌ Failed to load Google Maps API');
+        delete window.googleMapsLoading;
+        reject(new Error('Failed to load Google Maps API'));
+      };
+      
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        if (!window.google || !window.google.maps) {
+          console.error('❌ Google Maps API loading timeout');
+          reject(new Error('Google Maps API loading timeout'));
+        }
+      }, 10000);
+      
+      document.head.appendChild(script);
+    });
+
+    return window.googleMapsLoading;
+  }, [googleKey]);
+
+  // ✅ FIXED: Load Google Maps API with proper error handling
+  useEffect(() => {
+    if (!googleKey) {
+      setInitError('Google Maps API key not found');
       return;
     }
 
-    // Load Google Maps API script
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&libraries=geometry,places`;
-    script.async = true;
-    script.onload = () => setIsLoaded(true);
-    script.onerror = () => console.error('Failed to load Google Maps API');
-    document.head.appendChild(script);
+    let isMounted = true;
+
+    loadGoogleMapsAPI()
+      .then(() => {
+        if (isMounted) {
+          setIsLoaded(true);
+          setInitError(null);
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          console.error('❌ Google Maps initialization failed:', error);
+          setInitError(error.message);
+        }
+      });
 
     return () => {
-      // Cleanup script if component unmounts
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
+      isMounted = false;
     };
-  }, [googleKey]);
+  }, [googleKey, loadGoogleMapsAPI]);
 
-  // Initialize map
+  // ✅ FIXED: Initialize map with proper cleanup and error handling
   useEffect(() => {
-    if (!isLoaded || !mapRef.current || mapInstance.current) return;
-
-    // Default center (India)
-    let initialCenter = { lat: 20.5937, lng: 78.9629 };
-    let initialZoom = 5;
-
-    // Use pickup location if available
-    if (pickup) {
-      initialCenter = { lat: pickup.lat, lng: pickup.lng };
-      initialZoom = 16;
+    if (!isLoaded || !mapRef.current || mapInstance.current || initializationInProgress.current) {
+      return;
     }
 
-    // Initialize map
-    mapInstance.current = new window.google.maps.Map(mapRef.current, {
-      center: initialCenter,
-      zoom: initialZoom,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-      zoomControl: isInteractive,
-      gestureHandling: isInteractive ? 'auto' : 'none',
-      draggable: isInteractive,
-      scrollwheel: isInteractive,
-      disableDoubleClickZoom: !isInteractive,
-      styles: [
-        {
-          featureType: 'poi',
-          elementType: 'labels',
-          stylers: [{ visibility: 'off' }]
+    console.log('🗺️ Initializing Google Map...');
+    initializationInProgress.current = true;
+
+    try {
+      // Default center (India)
+      let initialCenter = { lat: 20.5937, lng: 78.9629 };
+      let initialZoom = 5;
+
+      // Use pickup location if available
+      if (pickup && pickup.lat && pickup.lng) {
+        initialCenter = { lat: pickup.lat, lng: pickup.lng };
+        initialZoom = 14;
+      } else if (driverLocation && driverLocation.lat && driverLocation.lng) {
+        initialCenter = { lat: driverLocation.lat, lng: driverLocation.lng };
+        initialZoom = 16;
+      }
+
+      // Initialize map
+      mapInstance.current = new window.google.maps.Map(mapRef.current, {
+        center: initialCenter,
+        zoom: initialZoom,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        zoomControl: isInteractive,
+        gestureHandling: isInteractive ? 'auto' : 'cooperative',
+        draggable: isInteractive,
+        scrollwheel: isInteractive,
+        disableDoubleClickZoom: !isInteractive,
+        clickableIcons: false,
+        styles: [
+          {
+            featureType: 'poi.business',
+            elementType: 'labels',
+            stylers: [{ visibility: 'off' }]
+          }
+        ]
+      });
+
+      // Initialize directions service
+      directionsService.current = new window.google.maps.DirectionsService();
+
+      // Wait for map to be idle before marking as ready
+      const idleListener = mapInstance.current.addListener('idle', () => {
+        google.maps.event.removeListener(idleListener);
+        setIsMapReady(true);
+        initializationInProgress.current = false;
+        console.log('✅ Google Map initialized and ready');
+      });
+
+      // Timeout fallback
+      setTimeout(() => {
+        if (!isMapReady) {
+          setIsMapReady(true);
+          initializationInProgress.current = false;
+          console.log('✅ Google Map initialized (timeout fallback)');
         }
-      ]
-    });
+      }, 2000);
 
-    // Initialize directions service and renderer
-    directionsService.current = new window.google.maps.DirectionsService();
-    routeRenderer.current = new window.google.maps.DirectionsRenderer({
-      suppressMarkers: true, // We'll use custom markers
-      polylineOptions: {
-        strokeColor: '#3b82f6',
-        strokeWeight: 4,
-        strokeOpacity: 0.8
-      }
-    });
-    routeRenderer.current.setMap(mapInstance.current);
+    } catch (error) {
+      console.error('❌ Map initialization error:', error);
+      setInitError('Failed to initialize map');
+      initializationInProgress.current = false;
+    }
+  }, [isLoaded, isInteractive, pickup, driverLocation, isMapReady]);
 
-  }, [isLoaded, isInteractive]);
+  // ✅ FIXED: Clear existing markers with error handling
+  const clearMarkers = useCallback(() => {
+    try {
+      markersRef.current.forEach(marker => {
+        if (marker && marker.setMap) {
+          marker.setMap(null);
+        }
+      });
+      markersRef.current = [];
+    } catch (error) {
+      console.error('❌ Error clearing markers:', error);
+    }
+  }, []);
 
-  // Clear existing markers
-  const clearMarkers = () => {
-    markersRef.current.forEach(marker => marker.setMap(null));
-    markersRef.current = [];
-  };
+  // ✅ FIXED: Clear all route renderers with error handling
+  const clearRoutes = useCallback(() => {
+    try {
+      routeRenderers.current.forEach(renderer => {
+        if (renderer && renderer.setMap) {
+          renderer.setMap(null);
+        }
+      });
+      routeRenderers.current = [];
+    } catch (error) {
+      console.error('❌ Error clearing routes:', error);
+    }
+  }, []);
 
-  // Create custom marker icons
-  const createMarkerIcon = (type) => {
-    const icons = {
-      'driver-location': {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        fillColor: '#4285f4',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-        scale: 8,
-      },
-      'rider-location': {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        fillColor: '#34a853',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-        scale: 8,
-      },
-      'pickup': {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        fillColor: '#ff6b35',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 3,
-        scale: 12,
-      },
-      'stop': {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        fillColor: '#fbbf24',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 3,
-        scale: 10,
-      },
-      'drop': {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        fillColor: '#d32f2f',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 3,
-        scale: 12,
-      }
-    };
-    return icons[type] || icons['driver-location'];
-  };
+  // ✅ FIXED: Create custom marker icons with error handling
+  const createMarkerIcon = useCallback((type) => {
+    try {
+      const icons = {
+        'driver-location': {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          fillColor: '#8b5cf6',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+          scale: 10,
+        },
+        'pickup': {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          fillColor: '#10b981',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+          scale: 12,
+        },
+        'stop': {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          fillColor: '#f59e0b',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+          scale: 10,
+        },
+        'drop': {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          fillColor: '#ef4444',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+          scale: 12,
+        }
+      };
+      return icons[type] || icons['pickup'];
+    } catch (error) {
+      console.error('❌ Error creating marker icon:', error);
+      return null;
+    }
+  }, []);
 
-  // Add markers to map
-  const addMarkers = () => {
-    if (!mapInstance.current) return;
+  // ✅ FIXED: Add markers to map with validation
+  const addMarkers = useCallback(() => {
+    if (!mapInstance.current || !isMapReady) return;
     
+    console.log('📍 Adding markers to map...');
     clearMarkers();
 
-    // Add pickup marker (or driver location for non-interactive maps)
-    if (pickup) {
-      const markerType = isInteractive ? 'pickup' : 'driver-location';
-      const marker = new window.google.maps.Marker({
-        position: { lat: pickup.lat, lng: pickup.lng },
-        map: mapInstance.current,
-        icon: createMarkerIcon(markerType),
-        title: isInteractive ? 'Pickup Location' : 'Driver Location'
-      });
-      markersRef.current.push(marker);
-    }
-
-    // Add stop markers
-    stops.forEach((stop, index) => {
-      if (stop && stop.lat && stop.lng) {
+    try {
+      // Add pickup marker
+      if (pickup && pickup.lat && pickup.lng) {
         const marker = new window.google.maps.Marker({
-          position: { lat: stop.lat, lng: stop.lng },
+          position: { lat: pickup.lat, lng: pickup.lng },
           map: mapInstance.current,
-          icon: createMarkerIcon('stop'),
-          title: `Stop ${index + 1}`
+          icon: createMarkerIcon('pickup'),
+          title: 'Pickup Location'
         });
         markersRef.current.push(marker);
       }
-    });
 
-    // Add drop marker
-    if (drop) {
-      const marker = new window.google.maps.Marker({
-        position: { lat: drop.lat, lng: drop.lng },
-        map: mapInstance.current,
-        icon: createMarkerIcon('drop'),
-        title: 'Drop Location'
-      });
-      markersRef.current.push(marker);
-    }
-
-    // Add current location marker (fallback)
-    if (isInteractive && !pickup && currentLocation) {
-      const marker = new window.google.maps.Marker({
-        position: { lat: currentLocation[0], lng: currentLocation[1] },
-        map: mapInstance.current,
-        icon: createMarkerIcon('rider-location'),
-        title: 'Your Location'
-      });
-      markersRef.current.push(marker);
-    }
-  };
-
-  // Generate route with Google Directions API
-  const generateRoute = async () => {
-    if (!pickup || !drop || !directionsService.current || !isInteractive) return;
-
-    setRouteLoading(true);
-    console.log('🗺️ Generating route with Google Directions API...');
-
-    try {
-      // Prepare waypoints
-      const waypoints = stops.map(stop => ({
-        location: { lat: stop.lat, lng: stop.lng },
-        stopover: true
-      }));
-
-      const request = {
-        origin: { lat: pickup.lat, lng: pickup.lng },
-        destination: { lat: drop.lat, lng: drop.lng },
-        waypoints: waypoints,
-        travelMode: window.google.maps.TravelMode.DRIVING,
-        optimizeWaypoints: waypoints.length > 0,
-        avoidHighways: false,
-        avoidTolls: false,
-        region: 'IN' // Bias for India
-      };
-
-      directionsService.current.route(request, (result, status) => {
-        if (status === 'OK' && result) {
-          console.log('✅ Google Directions route generated successfully');
-          
-          // Display route
-          routeRenderer.current.setDirections(result);
-          
-          // Extract route info
-          const route = result.routes[0];
-          const leg = route.legs[0];
-          
-          setRouteInfo({
-            distance: route.legs.reduce((total, leg) => total + leg.distance.value, 0),
-            duration: route.legs.reduce((total, leg) => total + leg.duration.value, 0),
-            service: 'Google Directions'
-          });
-
-          // Fit map to route bounds
-          const bounds = new window.google.maps.LatLngBounds();
-          route.legs.forEach(leg => {
-            leg.steps.forEach(step => {
-              step.path.forEach(point => {
-                bounds.extend(point);
-              });
+      // Add stop markers
+      if (stops && stops.length > 0) {
+        stops.forEach((stop, index) => {
+          if (stop && typeof stop.lat === 'number' && typeof stop.lng === 'number') {
+            const marker = new window.google.maps.Marker({
+              position: { lat: stop.lat, lng: stop.lng },
+              map: mapInstance.current,
+              icon: createMarkerIcon('stop'),
+              title: `Stop ${index + 1}`
             });
-          });
-          mapInstance.current.fitBounds(bounds, { padding: 50 });
-          
-        } else {
-          console.error('❌ Google Directions failed:', status);
-          // Fallback to straight line
-          createStraightLineRoute();
-        }
-        setRouteLoading(false);
-      });
-
-    } catch (error) {
-      console.error('❌ Route generation error:', error);
-      createStraightLineRoute();
-      setRouteLoading(false);
-    }
-  };
-
-  // Fallback straight line route
-  const createStraightLineRoute = () => {
-    if (!pickup || !drop) return;
-
-    const path = [
-      { lat: pickup.lat, lng: pickup.lng },
-      ...stops.map(stop => ({ lat: stop.lat, lng: stop.lng })),
-      { lat: drop.lat, lng: drop.lng }
-    ];
-
-    // Create polyline
-    const polyline = new window.google.maps.Polyline({
-      path: path,
-      geodesic: true,
-      strokeColor: '#3b82f6',
-      strokeOpacity: 0.8,
-      strokeWeight: 4,
-      strokePattern: [10, 10] // Dashed line to indicate it's not a real route
-    });
-
-    polyline.setMap(mapInstance.current);
-
-    // Calculate approximate distance
-    let totalDistance = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      const distance = window.google.maps.geometry.spherical.computeDistanceBetween(
-        new window.google.maps.LatLng(path[i]),
-        new window.google.maps.LatLng(path[i + 1])
-      );
-      totalDistance += distance;
-    }
-
-    setRouteInfo({
-      distance: totalDistance,
-      duration: Math.round(totalDistance / 30 * 3.6), // 30 km/h estimate
-      service: 'Straight Line'
-    });
-  };
-
-  // Update markers when props change
-  useEffect(() => {
-    if (!isLoaded) return;
-    addMarkers();
-  }, [isLoaded, pickup, drop, stops, currentLocation, isInteractive]);
-
-  // Generate route when needed
-  useEffect(() => {
-    if (!isLoaded || !pickup || !drop || !isInteractive) return;
-    
-    // Clear existing route
-    if (routeRenderer.current) {
-      routeRenderer.current.setDirections({ routes: [] });
-    }
-    
-    generateRoute();
-  }, [isLoaded, pickup, drop, stops, isInteractive]);
-
-  // Adjust map view when markers change
-  useEffect(() => {
-    if (!isLoaded || !mapInstance.current) return;
-
-    if (isInteractive && pickup && drop) {
-      // Fit bounds to include all points
-      const bounds = new window.google.maps.LatLngBounds();
-      
-      bounds.extend({ lat: pickup.lat, lng: pickup.lng });
-      stops.forEach(stop => {
-        if (stop && stop.lat && stop.lng) {
-          bounds.extend({ lat: stop.lat, lng: stop.lng });
-        }
-      });
-      bounds.extend({ lat: drop.lat, lng: drop.lng });
-      
-      mapInstance.current.fitBounds(bounds, { padding: 50 });
-    } else if (pickup) {
-      // Center on pickup/driver location
-      mapInstance.current.setCenter({ lat: pickup.lat, lng: pickup.lng });
-      mapInstance.current.setZoom(16);
-    }
-  }, [isLoaded, pickup, drop, stops, isInteractive]);
-
-  // GPS fallback logic
-  useEffect(() => {
-    if (!isInteractive || pickup || currentLocation) return;
-
-    const handleGPSUpdate = (position, error) => {
-      if (error) {
-        setCurrentLocation([20.5937, 78.9629]);
-        return;
+            markersRef.current.push(marker);
+          }
+        });
       }
 
-      const newLocation = [position.coords.latitude, position.coords.longitude];
-      setCurrentLocation(newLocation);
-      setLocationAccuracy(position.coords.accuracy);
-    };
+      // Add drop marker
+      if (drop && drop.lat && drop.lng) {
+        const marker = new window.google.maps.Marker({
+          position: { lat: drop.lat, lng: drop.lng },
+          map: mapInstance.current,
+          icon: createMarkerIcon('drop'),
+          title: 'Drop Location'
+        });
+        markersRef.current.push(marker);
+      }
 
-    gpsService.startWatching(handleGPSUpdate);
-    return () => {
-      gpsService.stopWatching(handleGPSUpdate);
-    };
-  }, [isInteractive, pickup, currentLocation]);
+      // Add driver location marker
+      if (showDriverPin && driverLocation && driverLocation.lat && driverLocation.lng) {
+        const marker = new window.google.maps.Marker({
+          position: { lat: driverLocation.lat, lng: driverLocation.lng },
+          map: mapInstance.current,
+          icon: createMarkerIcon('driver-location'),
+          title: 'Driver Location'
+        });
+        markersRef.current.push(marker);
+      }
 
-  // Cleanup
+      console.log(`✅ Added ${markersRef.current.length} markers to map`);
+    } catch (error) {
+      console.error('❌ Error adding markers:', error);
+    }
+  }, [pickup, drop, stops, driverLocation, showDriverPin, isMapReady, clearMarkers, createMarkerIcon]);
+
+  // ✅ FIXED: Generate routes with proper error handling and cleanup
+  const generateRoutes = useCallback(async () => {
+    if (!pickup || !drop || !directionsService.current || !isMapReady) {
+      return;
+    }
+
+    console.log('🛣️ Generating routes...');
+    setRouteLoading(true);
+    clearRoutes();
+
+    try {
+      if (showMultipleRoutes && routes.length > 0) {
+        // Generate multiple routes
+        console.log(`🗺️ Generating ${routes.length} route options`);
+        
+        const routePromises = routes.map(async (routeOption, index) => {
+          return new Promise((resolve) => {
+            const waypoints = stops.map(stop => ({
+              location: { lat: stop.lat, lng: stop.lng },
+              stopover: true
+            }));
+
+            const request = {
+              origin: { lat: pickup.lat, lng: pickup.lng },
+              destination: { lat: drop.lat, lng: drop.lng },
+              waypoints: waypoints,
+              travelMode: window.google.maps.TravelMode.DRIVING,
+              avoidHighways: routeOption.routeData?.avoidHighways || false,
+              avoidTolls: routeOption.routeData?.avoidTolls || false,
+              optimizeWaypoints: routeOption.routeData?.optimizeWaypoints || false,
+              region: 'IN'
+            };
+
+            directionsService.current.route(request, (result, status) => {
+              if (status === 'OK' && result) {
+                const isSelected = index === selectedRoute;
+                
+                const renderer = new window.google.maps.DirectionsRenderer({
+                  suppressMarkers: true,
+                  polylineOptions: {
+                    strokeColor: isSelected ? '#3b82f6' : '#9ca3af',
+                    strokeWeight: isSelected ? 6 : 4,
+                    strokeOpacity: isSelected ? 0.9 : 0.6,
+                    zIndex: isSelected ? 100 : 10
+                  }
+                });
+                
+                renderer.setDirections(result);
+                renderer.setMap(mapInstance.current);
+                routeRenderers.current.push(renderer);
+                
+                resolve({ success: true, route: result.routes[0], index });
+              } else {
+                console.warn(`⚠️ Route ${index + 1} failed:`, status);
+                resolve({ success: false, index });
+              }
+            });
+          });
+        });
+
+        const results = await Promise.all(routePromises);
+        const successful = results.filter(r => r.success);
+        
+        if (successful.length > 0) {
+          const selectedResult = successful.find(r => r.index === selectedRoute);
+          if (selectedResult) {
+            const route = selectedResult.route;
+            setRouteInfo({
+              distance: route.legs[0].distance.value,
+              duration: route.legs[0].duration.value
+            });
+          }
+          
+          // Fit bounds to show all routes
+          const bounds = new window.google.maps.LatLngBounds();
+          bounds.extend({ lat: pickup.lat, lng: pickup.lng });
+          bounds.extend({ lat: drop.lat, lng: drop.lng });
+          stops.forEach(stop => {
+            if (stop.lat && stop.lng) {
+              bounds.extend({ lat: stop.lat, lng: stop.lng });
+            }
+          });
+          mapInstance.current.fitBounds(bounds, { padding: 80 });
+        }
+      } else {
+        // Generate single route
+        const waypoints = stops.map(stop => ({
+          location: { lat: stop.lat, lng: stop.lng },
+          stopover: true
+        }));
+
+        const request = {
+          origin: { lat: pickup.lat, lng: pickup.lng },
+          destination: { lat: drop.lat, lng: drop.lng },
+          waypoints: waypoints,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          optimizeWaypoints: waypoints.length > 0,
+          region: 'IN'
+        };
+
+        directionsService.current.route(request, (result, status) => {
+          if (status === 'OK' && result) {
+            const renderer = new window.google.maps.DirectionsRenderer({
+              suppressMarkers: true,
+              polylineOptions: {
+                strokeColor: '#3b82f6',
+                strokeWeight: 5,
+                strokeOpacity: 0.8
+              }
+            });
+            
+            renderer.setDirections(result);
+            renderer.setMap(mapInstance.current);
+            routeRenderers.current.push(renderer);
+            
+            const route = result.routes[0];
+            setRouteInfo({
+              distance: route.legs[0].distance.value,
+              duration: route.legs[0].duration.value
+            });
+          } else {
+            console.warn('⚠️ Single route generation failed:', status);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('❌ Route generation error:', error);
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [pickup, drop, stops, showMultipleRoutes, routes, selectedRoute, isMapReady, clearRoutes]);
+
+  // ✅ FIXED: Update markers when dependencies change
+  useEffect(() => {
+    if (!isMapReady) return;
+    
+    const timeoutId = setTimeout(() => {
+      addMarkers();
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [isMapReady, addMarkers]);
+
+  // ✅ FIXED: Generate routes when dependencies change
+  useEffect(() => {
+    if (!isMapReady || !pickup || !drop) return;
+    
+    const timeoutId = setTimeout(() => {
+      generateRoutes();
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [isMapReady, generateRoutes]);
+
+  // ✅ FIXED: Update route highlighting when selection changes
+  useEffect(() => {
+    if (!showMultipleRoutes || routeRenderers.current.length === 0) return;
+
+    routeRenderers.current.forEach((renderer, index) => {
+      if (renderer && renderer.setOptions) {
+        const isSelected = index === selectedRoute;
+        renderer.setOptions({
+          polylineOptions: {
+            strokeColor: isSelected ? '#3b82f6' : '#9ca3af',
+            strokeWeight: isSelected ? 6 : 4,
+            strokeOpacity: isSelected ? 0.9 : 0.6,
+            zIndex: isSelected ? 100 : 10
+          }
+        });
+      }
+    });
+  }, [selectedRoute, showMultipleRoutes]);
+
+  // ✅ FIXED: Cleanup on unmount
   useEffect(() => {
     return () => {
       clearMarkers();
-      if (routeRenderer.current) {
-        routeRenderer.current.setMap(null);
+      clearRoutes();
+      if (mapInstance.current) {
+        mapInstance.current = null;
       }
     };
-  }, []);
+  }, [clearMarkers, clearRoutes]);
+
+  // Show error state
+  if (initError) {
+    return (
+      <div style={{ 
+        width: '100%', 
+        height: '100%', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        backgroundColor: '#f5f5f5'
+      }}>
+        <div style={{ textAlign: 'center', padding: '20px' }}>
+          <p style={{ color: '#ef4444', marginBottom: '10px' }}>❌ Map Error</p>
+          <p style={{ color: '#666', fontSize: '14px' }}>{initError}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -389,7 +530,7 @@ export default function GoogleMap({ pickup, drop, stops = [], route, isInteracti
       />
 
       {/* Loading indicator */}
-      {!isLoaded && (
+      {(!isLoaded || !isMapReady) && (
         <div style={{
           position: 'absolute',
           top: '50%',
@@ -412,12 +553,14 @@ export default function GoogleMap({ pickup, drop, stops = [], route, isInteracti
               margin: '0 auto'
             }}></div>
           </div>
-          <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>Loading Google Maps...</p>
+          <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+            {!isLoaded ? 'Loading Google Maps...' : 'Initializing map...'}
+          </p>
         </div>
       )}
 
       {/* Route loading indicator */}
-      {routeLoading && isInteractive && (
+      {routeLoading && isMapReady && (
         <div style={{
           position: 'absolute',
           top: '10px',
@@ -430,12 +573,12 @@ export default function GoogleMap({ pickup, drop, stops = [], route, isInteracti
           color: '#666',
           fontWeight: '500'
         }}>
-          🛣️ Finding optimal route...
+          🛣️ Calculating routes...
         </div>
       )}
 
       {/* Route info */}
-      {routeInfo && isInteractive && !routeLoading && (
+      {routeInfo && isMapReady && !routeLoading && (
         <div style={{
           position: 'absolute',
           top: '10px',
@@ -448,18 +591,11 @@ export default function GoogleMap({ pickup, drop, stops = [], route, isInteracti
           fontWeight: '500',
           boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
         }}>
-          <div>
-            {Math.round(routeInfo.distance / 1000 * 10) / 10} km • {Math.round(routeInfo.duration / 60)} min
-          </div>
-          {stops.length > 0 && (
-            <div style={{ fontSize: '10px', opacity: 0.9, marginTop: '2px' }}>
-              via {stops.length} stop{stops.length > 1 ? 's' : ''}
-            </div>
-          )}
+          {Math.round(routeInfo.distance / 1000 * 10) / 10} km • {Math.round(routeInfo.duration / 60)} min
         </div>
       )}
 
-      {/* Add CSS for spinning animation */}
+      {/* CSS for animations */}
       <style jsx>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
