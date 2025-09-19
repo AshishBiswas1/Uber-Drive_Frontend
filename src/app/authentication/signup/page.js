@@ -98,7 +98,7 @@ export default function SignupPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // ✅ SIMPLIFIED: Direct redirect to landing page
+  // Direct redirect to landing page
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -111,8 +111,6 @@ export default function SignupPage() {
     }
 
     try {
-      console.log('🚀 Starting signup process for:', formData.userType);
-      
       // Format phone number (add +91 if not present)
       const formattedPhoneNo = formData.phoneNo.startsWith('+') 
         ? formData.phoneNo 
@@ -137,8 +135,6 @@ export default function SignupPage() {
         payload.licenceNo = formData.licenseNo.trim().toUpperCase();
       }
 
-      console.log('📡 API Endpoint:', endpoint);
-
       // Make request to backend
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -158,9 +154,7 @@ export default function SignupPage() {
         throw new Error(data.message || `Signup failed with status ${response.status}`);
       }
 
-      console.log('✅ Signup successful!', data);
-      
-      // ✅ STORE USER DATA IN LOCALSTORAGE
+      // Store user data in localStorage
       if (typeof window !== 'undefined' && data.data && data.data.user) {
         const user = data.data.user;
         const userRole = formData.userType;
@@ -177,13 +171,11 @@ export default function SignupPage() {
         localStorage.setItem('user_phone', userPhone);
         localStorage.setItem('user_id', userId);
         localStorage.setItem('user_image', '/default-avatar.png');
-        localStorage.setItem('phone_verified', 'true'); // ✅ Skip verification
+        localStorage.setItem('phone_verified', 'true'); // Skip verification
         
         if (data.token) {
           localStorage.setItem('access_token', data.token);
         }
-
-        console.log('✅ User data stored successfully');
 
         // Trigger navbar refresh
         window.dispatchEvent(new StorageEvent('storage', {
@@ -195,17 +187,14 @@ export default function SignupPage() {
 
       const userTypeCapitalized = formData.userType.charAt(0).toUpperCase() + formData.userType.slice(1);
       
-      // ✅ SUCCESS: Direct redirect to landing page
+      // Success: Direct redirect to landing page
       setSuccessMessage(`🎉 ${userTypeCapitalized} account created successfully! Redirecting to home...`);
       
       setTimeout(() => {
-        console.log('🏠 Redirecting to landing page...');
         router.push('/'); // Direct to landing page
       }, 1500);
 
     } catch (err) {
-      console.error('❌ Signup error:', err);
-      
       let errorMessage = err.message;
       
       if (err.message.includes('fetch')) {
@@ -481,7 +470,7 @@ export default function SignupPage() {
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     Creating {formData.userType} account...
                   </>

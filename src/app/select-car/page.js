@@ -60,7 +60,7 @@ const CreditCardIcon = ({ className }) => (
   </svg>
 );
 
-// ✅ ENHANCED Backend Service with FASTER trip status detection
+// Enhanced Backend Service with FASTER trip status detection
 const apiService = {
   getAuthToken() {
     const tokenSources = [
@@ -83,12 +83,10 @@ const apiService = {
     for (const getToken of tokenSources) {
       const token = getToken();
       if (token && token !== 'null' && token !== 'undefined') {
-        console.log('🔑 Found auth token for API');
         return token;
       }
     }
 
-    console.warn('⚠️ No auth token found for API');
     return null;
   },
 
@@ -120,7 +118,7 @@ const apiService = {
               const payload = JSON.parse(atob(token.split('.')[1]));
               return payload.id || payload.userId || payload.sub;
             } catch (e) {
-              console.warn('Could not decode token for user ID');
+              // Could not decode token for user ID
             }
           }
           return null;
@@ -130,24 +128,18 @@ const apiService = {
       for (const getSource of sources) {
         const userId = getSource();
         if (userId && userId !== 'null' && userId !== 'undefined') {
-          console.log('🆔 Found user ID from source');
           return userId;
         }
       }
       
-      console.warn('⚠️ No user ID found in any source');
       return null;
     } catch (error) {
-      console.error('❌ Error getting current user ID:', error);
       return null;
     }
   },
 
   getValidVehicleType(driver) {
-    console.log('🚗 Determining vehicle type from driver:', driver);
-    
     if (!driver) {
-      console.log('⚠️ No driver provided, defaulting to Sedan');
       return 'Sedan';
     }
 
@@ -160,8 +152,6 @@ const apiService = {
     } else if (driver.vehicle?.make) {
       vehicleInfo = `${driver.vehicle.make} ${driver.vehicle.model || ''}`.toUpperCase();
     }
-
-    console.log('🔍 Vehicle info extracted:', vehicleInfo);
 
     if (vehicleInfo.includes('SUV') || 
         vehicleInfo.includes('UTILITY') ||
@@ -186,14 +176,11 @@ const apiService = {
       return 'Van';
     }
     
-    console.log('📝 Defaulting to Sedan for vehicle:', vehicleInfo);
     return 'Sedan';
   },
 
   async getNearbyDrivers(lat, lng) {
     try {
-      console.log('🚗 Fetching nearby drivers for coordinates:', { lat, lng });
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('Authentication token not found. Please log in.');
@@ -237,7 +224,6 @@ const apiService = {
       };
 
     } catch (error) {
-      console.error('❌ Error fetching nearby drivers:', error);
       return {
         success: false,
         error: error.message,
@@ -249,8 +235,6 @@ const apiService = {
 
   async createTrip(tripData) {
     try {
-      console.log('📝 Creating trip with data:', tripData);
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('Authentication token not found. Please log in.');
@@ -262,11 +246,8 @@ const apiService = {
       }
 
       if (!tripData.driverId) {
-        console.error('❌ Missing driverId in trip data:', tripData);
         throw new Error('Driver ID is required to create trip.');
       }
-
-      console.log('🆔 Creating trip for Driver ID:', tripData.driverId);
 
       const vehicleType = this.getValidVehicleType(tripData.driver);
       const distance = parseFloat(tripData.distance) || 10;
@@ -324,8 +305,6 @@ const apiService = {
         }
       };
 
-      console.log('📤 Sending request body with driverId:', requestBody.driverId);
-
       const url = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips/`;
       const response = await fetch(url, {
         method: 'POST',
@@ -347,8 +326,6 @@ const apiService = {
           errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
         }
 
-        console.error('❌ Trip creation failed with request body:', requestBody);
-
         if (response.status === 401) {
           throw new Error('Authentication failed. Please log in again.');
         } else if (response.status === 403) {
@@ -362,7 +339,6 @@ const apiService = {
       }
 
       const data = await response.json();
-      console.log('✅ Trip created successfully with driverId:', requestBody.driverId);
       
       return {
         success: true,
@@ -371,7 +347,6 @@ const apiService = {
       };
 
     } catch (error) {
-      console.error('❌ Error creating trip:', error);
       return {
         success: false,
         error: error.message
@@ -379,11 +354,9 @@ const apiService = {
     }
   },
 
-  // ✅ ENHANCED: Better trip status API call with retry logic and no cache
+  // Enhanced: Better trip status API call with retry logic and no cache
   async getTripStatus(tripId) {
     try {
-      console.log('📡 Fetching trip status for ID:', tripId, new Date().toLocaleTimeString());
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('Authentication token not found.');
@@ -397,7 +370,7 @@ const apiService = {
           'Authorization': `Bearer ${token}`,
           'x-auth-token': token,
           'x-access-token': token,
-          'Cache-Control': 'no-cache, no-store, must-revalidate', // ✅ Prevent caching
+          'Cache-Control': 'no-cache, no-store, must-revalidate', // Prevent caching
           'Pragma': 'no-cache',
           'Expires': '0'
         },
@@ -405,26 +378,16 @@ const apiService = {
       });
 
       if (!response.ok) {
-        console.error('❌ Trip status fetch failed:', response.status, response.statusText);
         throw new Error(`Failed to fetch trip status: ${response.status}`);
       }
 
       const data = await response.json();
-      
-      // ✅ ENHANCED: Log detailed trip status for debugging
-      console.log('✅ Trip status response:', {
-        status: data.data?.trip?.status || data.data?.status,
-        tripId: data.data?.trip?._id || data.data?._id,
-        fullData: data.data,
-        timestamp: new Date().toLocaleTimeString()
-      });
       
       return {
         success: true,
         trip: data.data?.trip || data.data
       };
     } catch (error) {
-      console.error('❌ Error getting trip status:', error);
       return {
         success: false,
         error: error.message
@@ -461,7 +424,6 @@ const apiService = {
         location: data.data?.location || data.location
       };
     } catch (error) {
-      console.error('❌ Error getting driver location:', error);
       return {
         success: false,
         error: error.message
@@ -471,8 +433,6 @@ const apiService = {
 
   async createPaymentSession(tripId, tipAmount = 0, promoCode = null) {
     try {
-      console.log('💳 Creating payment session for trip:', tripId);
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('Authentication token not found. Please log in.');
@@ -517,7 +477,6 @@ const apiService = {
       }
 
       const data = await response.json();
-      console.log('✅ Payment session created successfully');
       
       return {
         success: true,
@@ -530,7 +489,6 @@ const apiService = {
       };
 
     } catch (error) {
-      console.error('❌ Error creating payment session:', error);
       return {
         success: false,
         error: error.message
@@ -539,7 +497,7 @@ const apiService = {
   }
 };
 
-// ✅ NEW: Trip Completed - Payment Card Component
+// New: Trip Completed - Payment Card Component
 function TripCompletedPaymentCard({ trip, driver, onPayNow, onPayLater }) {
   const [tipAmount, setTipAmount] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -562,7 +520,6 @@ function TripCompletedPaymentCard({ trip, driver, onPayNow, onPayLater }) {
       }
     } catch (error) {
       setPaymentError('Failed to process payment. Please try again.');
-      console.error('❌ Payment processing error:', error);
     } finally {
       setIsProcessingPayment(false);
     }
@@ -735,7 +692,7 @@ function TripCompletedPaymentCard({ trip, driver, onPayNow, onPayLater }) {
   );
 }
 
-// ✅ ENHANCED: Waiting for Driver Component with better status detection
+// Enhanced: Waiting for Driver Component with better status detection
 function WaitingForDriverCard({ trip, driver, onCancel }) {
   const [timeWaiting, setTimeWaiting] = useState(0);
   const [driverLocation, setDriverLocation] = useState(null);
@@ -773,7 +730,7 @@ function WaitingForDriverCard({ trip, driver, onCancel }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // ✅ ENHANCED: Better status message handling with completion detection
+  // Enhanced: Better status message handling with completion detection
   const getStatusMessage = () => {
     switch (trip?.status?.toLowerCase()) {
       case 'requested':
@@ -796,7 +753,7 @@ function WaitingForDriverCard({ trip, driver, onCancel }) {
     }
   };
 
-  // ✅ ENHANCED: Better status color handling
+  // Enhanced: Better status color handling
   const getStatusColor = () => {
     switch (trip?.status?.toLowerCase()) {
       case 'requested':
@@ -1157,8 +1114,6 @@ function SelectCarContent() {
 
   // Generate route options
   const generateRouteOptions = (tripData) => {
-    console.log('🗺️ Generating route options for trip data:', tripData);
-    
     const baseDistance = parseFloat(tripData.totalDistance) || 10;
     const baseDuration = parseFloat(tripData.totalDuration) || 30;
     const hasStops = tripData.stopCoordinates && tripData.stopCoordinates.length > 0;
@@ -1267,12 +1222,6 @@ function SelectCarContent() {
 
   // Handle driver selection with proper ID normalization
   const handleDriverSelect = (driver) => {
-    console.log('👤 ===== DRIVER SELECTION DEBUG =====');
-    console.log('Raw driver object:', driver);
-    console.log('Driver.id:', driver.id);
-    console.log('Driver name:', driver.name);
-    console.log('====================================');
-    
     const normalizedDriver = {
       ...driver,
       _id: driver.id
@@ -1282,36 +1231,24 @@ function SelectCarContent() {
     setBookingError(null);
   };
 
-  // ✅ ENHANCED: Fast trip polling with better detection
+  // Enhanced: Fast trip polling with better detection
   const startTripPolling = useCallback((tripId) => {
     // Clean up any existing polling first
     if (pollIntervalRef.current) {
-      console.log('🧹 Cleaning up existing polling');
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
     
     isPollingActiveRef.current = true;
-    console.log('🚀 Starting ENHANCED trip polling for:', tripId);
     
     const pollTripStatus = async () => {
       if (!isPollingActiveRef.current) {
-        console.log('🛑 Polling stopped - flag is false');
         return;
       }
-      
-      console.log('🔍 Polling trip status for ID:', tripId, new Date().toLocaleTimeString());
       
       try {
         const result = await apiService.getTripStatus(tripId);
         if (result.success && isPollingActiveRef.current) {
-          console.log('📊 DETAILED Trip status update:', {
-            status: result.trip.status,
-            previousStatus: currentTrip?.status,
-            tripId: result.trip._id,
-            timestamp: new Date().toLocaleTimeString()
-          });
-          
           const previousStatus = currentTrip?.status;
           setCurrentTrip(result.trip);
           
@@ -1323,13 +1260,11 @@ function SelectCarContent() {
             }
           }
 
-          // ✅ ENHANCED: Check for completed trip with multiple status formats
+          // Enhanced: Check for completed trip with multiple status formats
           const completedStatuses = ['completed', 'trip_completed', 'finished'];
           if (completedStatuses.includes(result.trip.status?.toLowerCase())) {
-            console.log('🏁 TRIP COMPLETED DETECTED! Status:', result.trip.status);
-            console.log('🎉 Showing payment interface immediately');
             setShowPayment(true);
-            setIsWaitingForDriver(false); // ✅ IMPORTANT: Stop showing waiting state
+            setIsWaitingForDriver(false); // Important: Stop showing waiting state
             stopTripPolling();
             
             // Play completion sound/notification if supported
@@ -1341,36 +1276,28 @@ function SelectCarContent() {
                 });
               }
             } catch (e) {
-              console.log('Notification not supported');
+              // Notification not supported
             }
           }
           
           // Stop polling for other terminal states
           const terminalStatuses = ['cancelled', 'cancelled_by_driver', 'cancelled_by_rider'];
           if (terminalStatuses.includes(result.trip.status)) {
-            console.log('🏁 Trip reached terminal state, stopping polling:', result.trip.status);
             stopTripPolling();
-          }
-          
-          // ✅ NEW: Log status transitions for debugging
-          if (previousStatus !== result.trip.status) {
-            console.log('🔄 STATUS TRANSITION:', previousStatus, '→', result.trip.status);
           }
         }
       } catch (error) {
-        console.error('❌ Error during polling:', error);
         // Don't stop polling for temporary errors, but log them
       }
     };
 
-    // ✅ ENHANCED: Poll immediately, then every 2 seconds (much faster!)
+    // Enhanced: Poll immediately, then every 2 seconds (much faster!)
     pollTripStatus();
     pollIntervalRef.current = setInterval(pollTripStatus, 2000); // Faster polling!
   }, [selectedDriver?.id, currentTrip?.status]);
 
   // Stop polling function
   const stopTripPolling = useCallback(() => {
-    console.log('🛑 Stopping trip polling');
     isPollingActiveRef.current = false;
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
@@ -1380,9 +1307,6 @@ function SelectCarContent() {
 
   // Enhanced Book Ride Handler with controlled polling
   const handleBookRide = async () => {
-    console.log('📱 ===== BOOK RIDE CLICKED =====');
-    console.log('👤 Selected Driver Object:', selectedDriver);
-
     if (!selectedDriver) {
       setBookingError('Please select a driver first.');
       return;
@@ -1395,12 +1319,9 @@ function SelectCarContent() {
 
     const driverId = selectedDriver._id || selectedDriver.id;
     if (!driverId) {
-      console.error('❌ Driver ID is missing from selected driver:', selectedDriver);
       setBookingError('Driver ID is missing. Please select a driver again.');
       return;
     }
-
-    console.log('🆔 Using Driver ID:', driverId);
 
     setIsBookingTrip(true);
     setBookingError(null);
@@ -1423,13 +1344,9 @@ function SelectCarContent() {
         stops: tripDetails.stopCoordinates || []
       };
 
-      console.log('📤 Final trip creation payload:', tripCreationData);
-
       const result = await apiService.createTrip(tripCreationData);
 
       if (result.success) {
-        console.log('✅ Trip created successfully:', result);
-        
         setCurrentTrip(result.trip);
         setIsWaitingForDriver(true);
         
@@ -1437,12 +1354,10 @@ function SelectCarContent() {
         startTripPolling(result.tripId);
         
       } else {
-        console.error('❌ Trip creation failed:', result.error);
         setBookingError(result.error);
       }
 
     } catch (error) {
-      console.error('❌ Unexpected error in handleBookRide:', error);
       setBookingError('Failed to book ride. Please try again.');
     } finally {
       setIsBookingTrip(false);
@@ -1451,8 +1366,6 @@ function SelectCarContent() {
 
   // Enhanced cancel trip with proper cleanup
   const handleCancelTrip = async () => {
-    console.log('🚫 Cancelling trip and cleaning up polling...');
-    
     // Clean up polling
     stopTripPolling();
     
@@ -1466,7 +1379,6 @@ function SelectCarContent() {
 
   // Handle Payment Later
   const handlePayLater = () => {
-    console.log('💳 Payment postponed by user');
     setShowPayment(false);
     setIsWaitingForDriver(false);
     setCurrentTrip(null);
@@ -1478,23 +1390,9 @@ function SelectCarContent() {
     router.push('/?message=trip_completed');
   };
 
-  // ✅ NEW: Debug trip status changes
-  useEffect(() => {
-    if (currentTrip) {
-      console.log('🔍 TRIP STATUS MONITOR:', {
-        status: currentTrip.status,
-        tripId: currentTrip._id,
-        showPayment: showPayment,
-        isWaitingForDriver: isWaitingForDriver,
-        timestamp: new Date().toLocaleTimeString()
-      });
-    }
-  }, [currentTrip?.status, showPayment, isWaitingForDriver]);
-
   // Clean up polling when component unmounts
   useEffect(() => {
     return () => {
-      console.log('🧹 Component unmounting, cleaning up trip polling');
       stopTripPolling();
     };
   }, [stopTripPolling]);
@@ -1514,7 +1412,7 @@ function SelectCarContent() {
         };
       }
     } catch (error) {
-      console.error('Fresh geocoding error for:', address, error);
+      // Fresh geocoding error
     }
     return null;
   };
@@ -1522,12 +1420,9 @@ function SelectCarContent() {
   // Check Google Maps readiness
   useEffect(() => {
     const checkGoogleMapsReady = async () => {
-      console.log('🚀 Checking Google Maps readiness...');
-      
       try {
         const timeoutPromise = new Promise((resolve) => {
           setTimeout(() => {
-            console.warn('⚠️ Google Maps init timeout, proceeding anyway');
             resolve(false);
           }, 15000);
         });
@@ -1536,11 +1431,9 @@ function SelectCarContent() {
         
         const isReady = await Promise.race([initPromise, timeoutPromise]);
         
-        console.log('📍 Google Maps ready status:', isReady);
         setIsGoogleMapsReady(true);
         
       } catch (error) {
-        console.error('❌ Google Maps initialization error:', error);
         setIsGoogleMapsReady(true);
       }
     };
@@ -1627,7 +1520,7 @@ function SelectCarContent() {
             stopCoordinates = (await Promise.all(geocodePromises)).filter(Boolean);
           }
         } catch (error) {
-          console.error('Error parsing stops for routes:', error);
+          // Error parsing stops for routes
         }
       }
 
@@ -1725,13 +1618,13 @@ function SelectCarContent() {
             </div>
           )}
 
-          {/* ✅ ENHANCED: Show Payment Interface with better state management */}
+          {/* Enhanced: Show Payment Interface with better state management */}
           {showPayment && currentTrip ? (
             <TripCompletedPaymentCard 
               trip={currentTrip} 
               driver={selectedDriver}
               onPayNow={() => {
-                console.log('💳 Payment initiated for trip:', currentTrip._id);
+                // Payment initiated for trip
               }}
               onPayLater={handlePayLater}
             />

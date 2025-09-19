@@ -1,6 +1,6 @@
-// src/app/dashboard/page.js - BACKEND CONNECTED DASHBOARD
+// src/app/dashboard/page.js - FIXED: Display calculatedAmount instead of userTotalAmountSpent
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const [userData, setUserData] = useState({ name: '', image: '', email: '' });
   const [isLoading, setIsLoading] = useState(true);
   
-  // Dashboard state - ✅ Real backend data
+  // Dashboard state - Real-time backend data
   const [activeTab, setActiveTab] = useState('trips');
   const [trips, setTrips] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -21,20 +21,113 @@ export default function DashboardPage() {
   const [statistics, setStatistics] = useState({
     totalTrips: 0,
     completedTrips: 0,
-    totalSpent: 0,
-    totalEarned: 0,
-    walletBalance: 0
+    totalSpent: 0, // This will store the calculated amount from trips
+    totalEarned: 0, // This will store the calculated amount from trips
+    userTotalTrips: 0,
+    userTotalAmountSpent: 0,
+    userTotalEarned: 0,
+    userCompletedRides: 0
   });
   const [isDataLoading, setIsDataLoading] = useState(false);
 
-  // ✅ FETCH TRIPS FROM BACKEND
-  const fetchTrips = async (role, token) => {
-    try {
-      console.log('📡 Fetching trips from backend for role:', role);
+  // Helper function to safely extract duration
+  const formatDuration = useCallback((duration) => {
+    if (!duration) return 'N/A';
+    
+    if (typeof duration === 'object') {
+      const actualDuration = duration.actualDuration || duration.estimatedDuration;
+      if (actualDuration) {
+        if (typeof actualDuration === 'number') {
+          return `${actualDuration} min`;
+        }
+        if (typeof actualDuration === 'string') {
+          return actualDuration;
+        }
+      }
       
+      if (duration.estimatedDuration) {
+        if (typeof duration.estimatedDuration === 'number') {
+          return `${duration.estimatedDuration} min`;
+        }
+        return duration.estimatedDuration;
+      }
+      
+      return 'N/A';
+    }
+    
+    if (typeof duration === 'string') return duration;
+    if (typeof duration === 'number') return `${duration} min`;
+    
+    return 'N/A';
+  }, []);
+
+  // Helper function to safely format distance
+  const formatDistance = useCallback((distance) => {
+    if (!distance) return 'N/A';
+    if (typeof distance === 'number') return `${distance} km`;
+    if (typeof distance === 'string') return distance.includes('km') ? distance : `${distance} km`;
+    return 'N/A';
+  }, []);
+
+  // Helper function to safely format rating
+  const formatRating = useCallback((rating) => {
+    if (!rating) return '4.5';
+    if (typeof rating === 'number') return rating.toFixed(1);
+    if (typeof rating === 'string') return rating;
+    return '4.5';
+  }, []);
+
+  // FETCH REAL-TIME USER PROFILE DATA
+  const fetchUserProfile = useCallback(async (token, userRole) => {
+    try {
+      const endpoint = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/${userRole}/Me`;
+
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user profile: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.status === 'success' && data.data) {
+        const user = data.data.user || data.data;
+        
+        setStatistics(prev => ({
+          ...prev,
+          userTotalTrips: user.totalTrips || 0,
+          userTotalAmountSpent: user.totalAmountSpent || 0,
+          userTotalEarned: user.totalEarned || 0,
+          userCompletedRides: user.completedRides || user.totalTrips || 0
+        }));
+
+        setUserData(prevData => ({
+          ...prevData,
+          name: user.name || prevData.name,
+          email: user.email || prevData.email,
+          image: user.photo || user.image || prevData.image
+        }));
+
+        return user;
+      }
+    } catch (error) {
+      return null;
+    }
+  }, []);
+
+  // FETCH TRIPS FROM BACKEND (Works for both riders and drivers)
+  const fetchTrips = useCallback(async (role, token) => {
+    try {
       const endpoint = role === 'rider' 
-        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/trips`
-        : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/trips`;
+        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips?rider=true`
+        : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/trips?driver=true`;
 
       const response = await fetch(endpoint, {
         method: 'GET',
@@ -50,52 +143,52 @@ export default function DashboardPage() {
       }
 
       const data = await response.json();
-      console.log('✅ Trips data from backend:', data);
 
       if (data.status === 'success' && data.data) {
         const tripsData = data.data.trips || data.data || [];
         setTrips(tripsData);
         
-        // ✅ CALCULATE STATISTICS FROM BACKEND DATA
         const totalTrips = tripsData.length;
         const completedTrips = tripsData.filter(trip => 
-          trip.status === 'completed' || trip.status === 'finished'
+          trip.status === 'completed' || trip.paymentStatus === 'paid'
         ).length;
         
-        let totalAmount = 0;
+        let calculatedAmount = 0;
         if (role === 'rider') {
-          totalAmount = tripsData
-            .filter(trip => trip.status === 'completed' || trip.status === 'finished')
-            .reduce((sum, trip) => sum + (trip.fare || trip.totalAmount || 0), 0);
+          calculatedAmount = tripsData
+            .filter(trip => trip.status === 'completed' || trip.paymentStatus === 'paid')
+            .reduce((sum, trip) => {
+              const amount = trip.fare?.totalFare || trip.totalAmount || trip.amount || 0;
+              return sum + amount;
+            }, 0);
         } else {
-          totalAmount = tripsData
-            .filter(trip => trip.status === 'completed' || trip.status === 'finished')
-            .reduce((sum, trip) => sum + (trip.earning || trip.driverEarning || trip.totalAmount * 0.8 || 0), 0);
+          calculatedAmount = tripsData
+            .filter(trip => trip.status === 'completed' || trip.paymentStatus === 'paid')
+            .reduce((sum, trip) => {
+              const totalAmount = trip.fare?.totalFare || trip.totalAmount || trip.amount || 0;
+              const driverEarning = trip.driverEarning || (totalAmount * 0.8) || 0;
+              return sum + driverEarning;
+            }, 0);
         }
 
         setStatistics(prev => ({
           ...prev,
           totalTrips,
           completedTrips,
-          [role === 'rider' ? 'totalSpent' : 'totalEarned']: totalAmount
+          [role === 'rider' ? 'totalSpent' : 'totalEarned']: calculatedAmount
         }));
 
         return tripsData;
       }
     } catch (error) {
-      console.error('❌ Error fetching trips:', error);
       return [];
     }
-  };
+  }, []);
 
-  // ✅ FETCH PAYMENTS FROM BACKEND
-  const fetchPayments = async (role, token) => {
+  // FETCH PAYMENTS FROM BACKEND
+  const fetchPayments = useCallback(async (role, token) => {
     try {
-      console.log('📡 Fetching payments from backend for role:', role);
-      
-      const endpoint = role === 'rider' 
-        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/payments`
-        : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/payments`;
+      const endpoint = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/payment/history`;
 
       const response = await fetch(endpoint, {
         method: 'GET',
@@ -107,13 +200,10 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        // If payments endpoint doesn't exist, continue without error
-        console.log('⚠️ Payments endpoint not available:', response.status);
         return [];
       }
 
       const data = await response.json();
-      console.log('✅ Payments data from backend:', data);
 
       if (data.status === 'success' && data.data) {
         const paymentsData = data.data.payments || data.data || [];
@@ -121,111 +211,42 @@ export default function DashboardPage() {
         return paymentsData;
       }
     } catch (error) {
-      console.error('❌ Error fetching payments:', error);
       return [];
     }
-  };
+  }, []);
 
-  // ✅ FETCH WALLET BALANCE FROM BACKEND
-  const fetchWalletBalance = async (role, token) => {
-    try {
-      console.log('📡 Fetching wallet balance from backend');
-      
-      const endpoint = role === 'rider' 
-        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/wallet`
-        : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/wallet`;
-
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.log('⚠️ Wallet endpoint not available:', response.status);
-        return 0;
-      }
-
-      const data = await response.json();
-      console.log('✅ Wallet data from backend:', data);
-
-      if (data.status === 'success' && data.data) {
-        const balance = data.data.balance || data.data.walletBalance || 0;
-        setStatistics(prev => ({ ...prev, walletBalance: balance }));
-        return balance;
-      }
-    } catch (error) {
-      console.error('❌ Error fetching wallet balance:', error);
-      return 0;
-    }
-  };
-
-  // ✅ FETCH EARNINGS FROM BACKEND (Driver only)
-  const fetchEarnings = async (token) => {
-    try {
-      console.log('📡 Fetching earnings from backend');
-      
-      const endpoint = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/earnings`;
-
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.log('⚠️ Earnings endpoint not available:', response.status);
-        return [];
-      }
-
-      const data = await response.json();
-      console.log('✅ Earnings data from backend:', data);
-
-      if (data.status === 'success' && data.data) {
-        const earningsData = data.data.earnings || data.data || [];
-        setEarnings(earningsData);
-        return earningsData;
-      }
-    } catch (error) {
-      console.error('❌ Error fetching earnings:', error);
-      return [];
-    }
-  };
-
-  // ✅ LOAD ALL DATA FROM BACKEND
-  const loadDashboardData = async (role, token) => {
+  // LOAD ALL DATA FROM BACKEND - ONLY CALLED ONCE OR ON REFRESH
+  const loadDashboardData = useCallback(async (role, token) => {
     setIsDataLoading(true);
     try {
-      console.log('🔄 Loading all dashboard data from backend...');
+      await fetchUserProfile(token, role);
 
-      // Fetch data in parallel
-      const [tripsData, paymentsData, walletBalance] = await Promise.all([
+      const [tripsData, paymentsData] = await Promise.all([
         fetchTrips(role, token),
-        fetchPayments(role, token),
-        fetchWalletBalance(role, token)
+        fetchPayments(role, token)
       ]);
 
-      // Fetch earnings only for drivers
-      if (role === 'driver') {
-        await fetchEarnings(token);
-      }
-
-      console.log('✅ All dashboard data loaded successfully');
     } catch (error) {
-      console.error('❌ Error loading dashboard data:', error);
+      // Error handled silently
     } finally {
       setIsDataLoading(false);
     }
-  };
+  }, [fetchUserProfile, fetchTrips, fetchPayments]);
 
-  // Check authentication and load data
+  // REFRESH DATA FUNCTION - ONLY CALLED ON BUTTON CLICK
+  const refreshDashboardData = useCallback(async () => {
+    const token = localStorage.getItem('access_token');
+    const role = localStorage.getItem('user_role');
+    
+    if (token && role) {
+      await loadDashboardData(role, token);
+    }
+  }, [loadDashboardData]);
+
+  // FIXED: Check authentication and load data ONLY ONCE
   useEffect(() => {
+    let mounted = true;
+
     const checkAuthAndLoadData = async () => {
       if (typeof window !== 'undefined') {
         const isLoggedIn = localStorage.getItem('isUserLoggedIn') === 'true';
@@ -235,30 +256,36 @@ export default function DashboardPage() {
         const image = localStorage.getItem('user_image');
         const token = localStorage.getItem('access_token');
 
-        console.log('🔍 Dashboard auth check:', { isLoggedIn, role, name, hasToken: !!token });
-
         if (isLoggedIn && role && name && token) {
-          setIsAuthenticated(true);
-          setUserRole(role);
-          setUserData({
-            name: name || 'User',
-            email: email || '',
-            image: image || '/default-avatar.png'
-          });
+          if (mounted) {
+            setIsAuthenticated(true);
+            setUserRole(role);
+            setUserData({
+              name: name || 'User',
+              email: email || '',
+              image: image || '/default-avatar.png'
+            });
 
-          // ✅ LOAD REAL DATA FROM BACKEND
-          await loadDashboardData(role, token);
+            // Load data only once on mount
+            await loadDashboardData(role, token);
+          }
         } else {
-          console.log('❌ Not authenticated, redirecting to login');
           router.push('/authentication/login');
           return;
         }
       }
-      setIsLoading(false);
+      
+      if (mounted) {
+        setIsLoading(false);
+      }
     };
 
     checkAuthAndLoadData();
-  }, [router]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [router, loadDashboardData]);
 
   // Loading screen
   if (isLoading) {
@@ -274,14 +301,14 @@ export default function DashboardPage() {
 
   // Not authenticated
   if (!isAuthenticated) {
-    return null; // Will redirect
+    return null;
   }
 
-  // ✅ Sidebar navigation items based on user role
+  // UPDATED: Sidebar navigation items - REMOVED wallet
   const sidebarItems = [
     {
       id: 'trips',
-      name: 'Your Trips',
+      name: userRole === 'rider' ? 'Your Trips' : 'Your Rides',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -291,7 +318,7 @@ export default function DashboardPage() {
     },
     {
       id: 'payments',
-      name: 'Your Payments',
+      name: userRole === 'rider' ? 'Your Payments' : 'Payment History',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -310,16 +337,6 @@ export default function DashboardPage() {
       available: userRole === 'driver'
     },
     {
-      id: 'wallet',
-      name: 'Your Wallet',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V9a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V9z" />
-        </svg>
-      ),
-      available: true
-    },
-    {
       id: 'support',
       name: 'Help & Support',
       icon: (
@@ -334,9 +351,9 @@ export default function DashboardPage() {
   // Filter available sidebar items
   const availableSidebarItems = sidebarItems.filter(item => item.available);
 
-  // ✅ Trip status color helper
+  // Trip status color helper
   const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
+    switch (status?.toLowerCase()) {
       case 'completed':
       case 'finished':
         return 'bg-green-100 text-green-800';
@@ -346,15 +363,17 @@ export default function DashboardPage() {
       case 'ongoing':
       case 'in-progress':
       case 'active':
+      case 'accepted':
         return 'bg-blue-100 text-blue-800';
       case 'pending':
+      case 'requested':
         return 'bg-yellow-100 text-yellow-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
 
-  // ✅ Format date helper
+  // Format date helper
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
@@ -369,7 +388,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Format time helper
+  // Format time helper
   const formatTime = (dateString) => {
     if (!dateString) return 'N/A';
     try {
@@ -384,7 +403,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ UPDATED: Render trip card for riders with backend data
+  // UPDATED: Render trip card for riders with backend data
   const renderRiderTripCard = (trip) => (
     <div key={trip._id || trip.id} className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-4">
@@ -401,19 +420,25 @@ export default function DashboardPage() {
             <div className="flex items-center text-sm">
               <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
               <span className="font-medium">From:</span>
-              <span className="ml-1 text-gray-700">{trip.pickupLocation || trip.from || 'N/A'}</span>
+              <span className="ml-1 text-gray-700">
+                {trip.pickupLocation?.address || trip.pickupLocation || trip.from || 'N/A'}
+              </span>
             </div>
             <div className="flex items-center text-sm">
               <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
               <span className="font-medium">To:</span>
-              <span className="ml-1 text-gray-700">{trip.dropoffLocation || trip.to || 'N/A'}</span>
+              <span className="ml-1 text-gray-700">
+                {trip.dropoffLocation?.address || trip.dropoffLocation || trip.to || 'N/A'}
+              </span>
             </div>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xl font-bold text-gray-900">₹{trip.fare || trip.totalAmount || 0}</div>
+          <div className="text-xl font-bold text-gray-900">
+            ₹{trip.fare?.totalFare || trip.totalAmount || trip.amount || 0}
+          </div>
           <div className="text-sm text-gray-500">
-            {trip.distance ? `${trip.distance} km` : 'N/A'} • {trip.duration || trip.estimatedTime || 'N/A'}
+            {formatDistance(trip.distance)} • {formatDuration(trip.duration || trip.estimatedTime)}
           </div>
         </div>
       </div>
@@ -428,7 +453,10 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="font-medium text-sm">
-                {trip.driver?.name || trip.driverName || 'Driver'}
+                {userRole === 'rider' 
+                  ? (trip.driverId?.name || trip.driver?.name || trip.driverName || 'Driver')
+                  : (trip.riderId?.name || trip.rider?.name || trip.riderName || 'Rider')
+                }
               </div>
               <div className="text-xs text-gray-500">
                 {trip.vehicleType || trip.vehicle?.type || 'Vehicle'} • {trip.vehicleNumber || trip.vehicle?.plateNumber || 'N/A'}
@@ -440,7 +468,11 @@ export default function DashboardPage() {
               <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
             </svg>
             <span className="text-sm font-medium">
-              {trip.driver?.rating || trip.driverRating || '4.5'}
+              {formatRating(
+                userRole === 'rider' 
+                  ? (trip.driverId?.averageRating || trip.driver?.rating || trip.driverRating)
+                  : (trip.riderId?.averageRating || trip.rider?.rating || trip.riderRating)
+              )}
             </span>
           </div>
         </div>
@@ -448,78 +480,12 @@ export default function DashboardPage() {
     </div>
   );
 
-  // ✅ UPDATED: Render trip card for drivers with backend data
-  const renderDriverTripCard = (trip) => (
-    <div key={trip._id || trip.id} className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <div className="flex items-center space-x-2 mb-2">
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(trip.status)}`}>
-              {trip.status ? trip.status.charAt(0).toUpperCase() + trip.status.slice(1) : 'Unknown'}
-            </span>
-            <span className="text-sm text-gray-500">
-              {formatDate(trip.createdAt || trip.bookingTime)} • {formatTime(trip.createdAt || trip.bookingTime)}
-            </span>
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center text-sm">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-              <span className="font-medium">From:</span>
-              <span className="ml-1 text-gray-700">{trip.pickupLocation || trip.from || 'N/A'}</span>
-            </div>
-            <div className="flex items-center text-sm">
-              <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-              <span className="font-medium">To:</span>
-              <span className="ml-1 text-gray-700">{trip.dropoffLocation || trip.to || 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-xl font-bold text-green-600">
-            ₹{trip.earning || trip.driverEarning || Math.round((trip.fare || trip.totalAmount || 0) * 0.8)}
-          </div>
-          <div className="text-sm text-gray-500">₹{trip.fare || trip.totalAmount || 0} fare</div>
-          <div className="text-xs text-gray-400">
-            {trip.distance ? `${trip.distance} km` : 'N/A'} • {trip.duration || trip.estimatedTime || 'N/A'}
-          </div>
-        </div>
-      </div>
-      
-      <div className="border-t pt-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
-            <div>
-              <div className="font-medium text-sm">
-                {trip.rider?.name || trip.riderName || 'Rider'}
-              </div>
-              <div className="text-xs text-gray-500">Rider</div>
-            </div>
-          </div>
-          <div className="flex items-center space-x-1">
-            <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-            <span className="text-sm font-medium">
-              {trip.rider?.rating || trip.riderRating || '4.5'}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ✅ UPDATED: Render content with real backend data
+  // UPDATED: Render content with real backend data - FIXED: Use calculated amounts
   const renderTabContent = () => {
     switch (activeTab) {
       case 'trips':
         return (
           <div>
-            {/* Data loading indicator */}
             {isDataLoading && (
               <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <div className="flex items-center">
@@ -531,24 +497,33 @@ export default function DashboardPage() {
 
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Your Trips</h2>
-                <p className="text-gray-600 mt-1">View and manage your recent trips</p>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {userRole === 'rider' ? 'Your Trips' : 'Your Rides'}
+                </h2>
+                <p className="text-gray-600 mt-1">
+                  {userRole === 'rider' ? 'View and manage your recent trips' : 'View and manage your recent rides'}
+                </p>
               </div>
               <div className="flex space-x-2">
+                <button 
+                  onClick={refreshDashboardData}
+                  disabled={isDataLoading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center space-x-2"
+                >
+                  <svg className={`w-4 h-4 ${isDataLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Refresh</span>
+                </button>
                 <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option>All Trips</option>
+                  <option>All {userRole === 'rider' ? 'Trips' : 'Rides'}</option>
                   <option>Completed</option>
                   <option>Cancelled</option>
-                </select>
-                <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option>Last 30 days</option>
-                  <option>Last 7 days</option>
-                  <option>This month</option>
                 </select>
               </div>
             </div>
 
-            {/* ✅ UPDATED: Trip Statistics from backend data */}
+            {/* FIXED: Display calculated amounts from trips data */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center">
@@ -558,8 +533,13 @@ export default function DashboardPage() {
                     </svg>
                   </div>
                   <div className="ml-4">
-                    <p className="text-sm font-medium text-blue-600">Total Trips</p>
-                    <p className="text-2xl font-bold text-blue-900">{statistics.totalTrips}</p>
+                    <p className="text-sm font-medium text-blue-600">
+                      Total {userRole === 'rider' ? 'Trips' : 'Rides'}
+                    </p>
+                    <p className="text-2xl font-bold text-blue-900">
+                      {statistics.totalTrips || 0}
+                    </p>
+                    <p className="text-xs text-blue-500">From trips data</p>
                   </div>
                 </div>
               </div>
@@ -573,7 +553,8 @@ export default function DashboardPage() {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm font-medium text-green-600">Completed</p>
-                    <p className="text-2xl font-bold text-green-900">{statistics.completedTrips}</p>
+                    <p className="text-2xl font-bold text-green-900">{statistics.completedTrips || 0}</p>
+                    <p className="text-xs text-green-500">From trips data</p>
                   </div>
                 </div>
               </div>
@@ -590,26 +571,43 @@ export default function DashboardPage() {
                       {userRole === 'rider' ? 'Total Spent' : 'Total Earned'}
                     </p>
                     <p className="text-2xl font-bold text-purple-900">
-                      ₹{userRole === 'rider' ? statistics.totalSpent : statistics.totalEarned}
+                      ₹{userRole === 'rider' 
+                        ? (statistics.totalSpent || 0)
+                        : (statistics.totalEarned || 0)
+                      }
                     </p>
+                    <p className="text-xs text-purple-500">Calculated from trips</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* ✅ UPDATED: Trips List from backend */}
+            {/* UPDATED: All User Trips from backend */}
             <div className="space-y-4">
               {trips.length > 0 ? (
-                trips.map(trip => 
-                  userRole === 'rider' ? renderRiderTripCard(trip) : renderDriverTripCard(trip)
-                )
+                trips.map(trip => renderRiderTripCard(trip))
               ) : (
                 <div className="text-center py-12">
                   <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                   </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No trips yet</h3>
-                  <p className="mt-1 text-sm text-gray-500">Start your journey with RideFlex Pro</p>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">
+                    No {userRole === 'rider' ? 'trips' : 'rides'} yet
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {userRole === 'rider' 
+                      ? 'Start your journey with RideFlex Pro' 
+                      : 'Start earning with RideFlex Pro'
+                    }
+                  </p>
+                  {userRole === 'rider' && (
+                    <Link 
+                      href="/rider/book-ride" 
+                      className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                    >
+                      Book Your First Ride
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
@@ -621,37 +619,38 @@ export default function DashboardPage() {
           <div>
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Your Payments</h2>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {userRole === 'rider' ? 'Your Payments' : 'Payment History'}
+                </h2>
                 <p className="text-gray-600 mt-1">Transaction history and payment methods</p>
               </div>
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                + Add Payment Method
+              <button 
+                onClick={refreshDashboardData}
+                disabled={isDataLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center space-x-2"
+              >
+                <svg className={`w-4 h-4 ${isDataLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Refresh</span>
               </button>
             </div>
 
-            {/* ✅ UPDATED: Payment Summary with backend data */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100">Wallet Balance</p>
-                    <p className="text-3xl font-bold">₹{statistics.walletBalance}</p>
-                  </div>
-                  <div className="p-3 bg-blue-400 bg-opacity-50 rounded-full">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V9a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V9z" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-              
+            {/* FIXED: Real-time Payment Summary - Display calculated amounts */}
+            <div className="grid grid-cols-1 gap-4 mb-6">
               <div className="bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-green-100">This Month</p>
-                    <p className="text-3xl font-bold">
-                      ₹{userRole === 'rider' ? statistics.totalSpent : statistics.totalEarned}
+                    <p className="text-green-100">
+                      {userRole === 'rider' ? 'Total Spent' : 'Total Earned'}
                     </p>
+                    <p className="text-3xl font-bold">
+                      ₹{userRole === 'rider' 
+                        ? (statistics.totalSpent || 0)
+                        : (statistics.totalEarned || 0)
+                      }
+                    </p>
+                    <p className="text-sm text-green-100">Calculated from trips</p>
                   </div>
                   <div className="p-3 bg-green-400 bg-opacity-50 rounded-full">
                     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -674,35 +673,32 @@ export default function DashboardPage() {
                     <div key={payment._id || payment.id} className="px-6 py-4 flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                         <div className={`p-2 rounded-full ${
-                          payment.type === 'trip_payment' || payment.type === 'payment' ? 'bg-blue-100' : 
-                          payment.type === 'refund' ? 'bg-green-100' : 'bg-gray-100'
+                          payment.status === 'paid' ? 'bg-green-100' : 
+                          payment.status === 'pending' ? 'bg-yellow-100' : 'bg-gray-100'
                         }`}>
-                          {payment.type === 'trip_payment' || payment.type === 'payment' ? (
-                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                            </svg>
-                          ) : (
-                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
-                          )}
+                          <svg className={`w-5 h-5 ${
+                            payment.status === 'paid' ? 'text-green-600' : 
+                            payment.status === 'pending' ? 'text-yellow-600' : 'text-gray-600'
+                          }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                          </svg>
                         </div>
                         <div>
                           <div className="font-medium text-sm">
-                            {payment.description || payment.tripId || 'Transaction'}
+                            {userRole === 'rider' ? 'Trip Payment' : 'Trip Earning'}
                           </div>
                           <div className="text-xs text-gray-500">
-                            {payment.method || payment.paymentMethod || 'N/A'} • {formatDate(payment.createdAt || payment.date)}
+                            {payment.paymentMethod || 'Stripe'} • {formatDate(payment.createdAt || payment.completedAt)}
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className={`font-medium ${payment.type === 'refund' ? 'text-green-600' : 'text-gray-900'}`}>
-                          {payment.type === 'refund' ? '+' : '-'}₹{payment.amount}
+                        <div className="font-medium text-gray-900">
+                          {userRole === 'rider' ? '-' : '+'}₹{payment.amount}
                         </div>
                         <div className={`text-xs ${
-                          payment.status === 'completed' || payment.status === 'success' ? 'text-green-600' : 
-                          payment.status === 'processed' || payment.status === 'pending' ? 'text-blue-600' : 'text-gray-500'
+                          payment.status === 'paid' ? 'text-green-600' : 
+                          payment.status === 'pending' ? 'text-yellow-600' : 'text-gray-500'
                         }`}>
                           {payment.status ? payment.status.charAt(0).toUpperCase() + payment.status.slice(1) : 'Unknown'}
                         </div>
@@ -724,291 +720,135 @@ export default function DashboardPage() {
         );
 
       case 'earnings':
-        return (
+        return userRole === 'driver' ? (
           <div>
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Your Earnings</h2>
-                <p className="text-gray-600 mt-1">Track your daily and monthly earnings</p>
+                <p className="text-gray-600 mt-1">Track your driving income and performance</p>
               </div>
-              <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                💳 Withdraw Earnings
-              </button>
-            </div>
-
-            {/* ✅ UPDATED: Earnings Summary with backend data */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-green-600">Total Earned</p>
-                  <p className="text-2xl font-bold text-green-900">₹{statistics.totalEarned}</p>
-                  <p className="text-xs text-green-600">{statistics.completedTrips} trips</p>
-                </div>
-              </div>
-              
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-blue-600">This Week</p>
-                  <p className="text-2xl font-bold text-blue-900">₹{Math.round(statistics.totalEarned * 0.3)}</p>
-                  <p className="text-xs text-blue-600">{Math.round(statistics.completedTrips * 0.4)} trips</p>
-                </div>
-              </div>
-
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-purple-600">This Month</p>
-                  <p className="text-2xl font-bold text-purple-900">₹{Math.round(statistics.totalEarned * 0.8)}</p>
-                  <p className="text-xs text-purple-600">{Math.round(statistics.completedTrips * 0.9)} trips</p>
-                </div>
-              </div>
-
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-orange-600">Available</p>
-                  <p className="text-2xl font-bold text-orange-900">₹{statistics.walletBalance}</p>
-                  <p className="text-xs text-orange-600">Ready to withdraw</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Daily Earnings from backend */}
-            <div className="bg-white border border-gray-200 rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Earnings Breakdown</h3>
-              </div>
-              
-              {earnings.length > 0 ? (
-                <div className="divide-y divide-gray-200">
-                  {earnings.map((earning, index) => (
-                    <div key={index} className="px-6 py-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-medium text-gray-900">
-                          {formatDate(earning.date || earning.createdAt)}
-                        </div>
-                        <div className="text-lg font-bold text-green-600">
-                          ₹{earning.netEarning || earning.totalEarning || 0}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-500">Trips:</span>
-                          <span className="ml-1 font-medium">{earning.trips || earning.totalTrips || 0}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Gross:</span>
-                          <span className="ml-1 font-medium">₹{earning.grossEarning || earning.totalAmount || 0}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Commission:</span>
-                          <span className="ml-1 font-medium text-red-600">-₹{earning.commission || 0}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Bonus:</span>
-                          <span className="ml-1 font-medium text-green-600">+₹{earning.bonus || 0}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-6 text-center text-gray-500">
-                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                  </svg>
-                  <p className="text-sm">No earnings data yet</p>
-                  <p className="text-xs text-gray-400 mt-1">Complete trips to start earning</p>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-
-      case 'wallet':
-        return (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Your Wallet</h2>
-                <p className="text-gray-600 mt-1">Manage your wallet and payment methods</p>
-              </div>
-              <div className="flex space-x-2">
-                <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                  + Add Money
-                </button>
-                <button className="border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
-                  💳 Payment Methods
-                </button>
-              </div>
-            </div>
-
-            {/* ✅ UPDATED: Wallet Balance Card with backend data */}
-            <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl p-8 mb-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-indigo-100 mb-2">Total Balance</p>
-                  <p className="text-4xl font-bold mb-4">₹{statistics.walletBalance.toFixed(2)}</p>
-                  <div className="flex space-x-4 text-sm">
-                    <div>
-                      <p className="text-indigo-100">This Month</p>
-                      <p className="font-semibold">₹{Math.round(statistics.walletBalance * 0.4).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-indigo-100">Last Used</p>
-                      <p className="font-semibold">Today</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V9a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V9z" />
-                    </svg>
-                  </div>
-                  <p className="text-indigo-100 text-sm">RideFlex Wallet</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <button className="bg-white border border-gray-200 rounded-lg p-6 text-left hover:shadow-md transition-shadow">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-green-100 rounded-lg">
-                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">Add Money</h3>
-                    <p className="text-sm text-gray-500">Top up your wallet</p>
-                  </div>
-                </div>
-              </button>
-
-              <button className="bg-white border border-gray-200 rounded-lg p-6 text-left hover:shadow-md transition-shadow">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-blue-100 rounded-lg">
-                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">Transfer Money</h3>
-                    <p className="text-sm text-gray-500">Send to bank account</p>
-                  </div>
-                </div>
-              </button>
-
-              <button className="bg-white border border-gray-200 rounded-lg p-6 text-left hover:shadow-md transition-shadow">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-purple-100 rounded-lg">
-                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">Transaction History</h3>
-                    <p className="text-sm text-gray-500">View all transactions</p>
-                  </div>
-                </div>
-              </button>
-            </div>
-
-            {/* Recent Wallet Transactions */}
-            <div className="bg-white border border-gray-200 rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Recent Wallet Activity</h3>
-              </div>
-              <div className="p-6 text-center text-gray-500">
-                <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V9a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V9z" />
+              <button 
+                onClick={refreshDashboardData}
+                disabled={isDataLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center space-x-2"
+              >
+                <svg className={`w-4 h-4 ${isDataLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                <p className="text-sm">Wallet balance: ₹{statistics.walletBalance}</p>
-                <p className="text-xs text-gray-400 mt-1">Add money to start using wallet features</p>
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* FIXED: Driver Earnings Summary - Display calculated amounts */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-green-600">Total Earnings</p>
+                    <p className="text-2xl font-bold text-green-900">
+                      ₹{statistics.totalEarned || 0}
+                    </p>
+                    <p className="text-xs text-green-500">Calculated from trips</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-yellow-100 rounded-lg">
+                    <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-yellow-600">Average per Trip</p>
+                    <p className="text-2xl font-bold text-yellow-900">
+                      ₹{statistics.totalTrips > 0 
+                        ? Math.round((statistics.totalEarned || 0) / statistics.totalTrips)
+                        : 0
+                      }
+                    </p>
+                    <p className="text-xs text-yellow-500">Per completed ride</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Placeholder for earnings chart */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Earnings Overview</h3>
+              <div className="text-center py-8 text-gray-500">
+                <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="text-sm">Detailed earnings analytics coming soon</p>
+                <p className="text-xs text-gray-400 mt-1">Track your income trends and performance metrics</p>
               </div>
             </div>
           </div>
-        );
+        ) : null;
 
       case 'support':
         return (
           <div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Help & Support</h2>
-              <p className="text-gray-600 mt-1">Get help with your RideFlex Pro experience</p>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Help & Support</h2>
+                <p className="text-gray-600 mt-1">Get help and contact our support team</p>
+              </div>
             </div>
 
-            {/* Support Options */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            {/* Support options */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
                 <div className="flex items-center mb-4">
                   <div className="p-3 bg-blue-100 rounded-lg">
                     <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                     </svg>
                   </div>
-                  <h3 className="ml-3 text-lg font-medium text-gray-900">Live Chat</h3>
+                  <div className="ml-4">
+                    <h3 className="font-medium text-gray-900">Live Chat</h3>
+                    <p className="text-sm text-gray-500">Chat with our support team</p>
+                  </div>
                 </div>
-                <p className="text-gray-600 mb-4">Get instant help from our support team</p>
-                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                <button className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
                   Start Chat
                 </button>
               </div>
 
-              <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
                 <div className="flex items-center mb-4">
                   <div className="p-3 bg-green-100 rounded-lg">
                     <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <h3 className="ml-3 text-lg font-medium text-gray-900">Call Support</h3>
+                  <div className="ml-4">
+                    <h3 className="font-medium text-gray-900">Email Support</h3>
+                    <p className="text-sm text-gray-500">Send us an email</p>
+                  </div>
                 </div>
-                <p className="text-gray-600 mb-4">Speak directly with our support team</p>
-                <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                  Call Now
+                <button className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+                  Send Email
                 </button>
               </div>
             </div>
 
-            {/* FAQ Section */}
-            <div className="bg-white border border-gray-200 rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Frequently Asked Questions</h3>
-              </div>
-              <div className="divide-y divide-gray-200">
-                <div className="px-6 py-4">
-                  <button className="flex items-center justify-between w-full text-left">
-                    <span className="font-medium text-gray-900">How do I cancel a trip?</span>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="px-6 py-4">
-                  <button className="flex items-center justify-between w-full text-left">
-                    <span className="font-medium text-gray-900">How do I add money to my wallet?</span>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="px-6 py-4">
-                  <button className="flex items-center justify-between w-full text-left">
-                    <span className="font-medium text-gray-900">How do I update my profile?</span>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="px-6 py-4">
-                  <button className="flex items-center justify-between w-full text-left">
-                    <span className="font-medium text-gray-900">What are the safety features?</span>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                </div>
+            {/* FAQ placeholder */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Frequently Asked Questions</h3>
+              <div className="text-center py-8 text-gray-500">
+                <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm">FAQ section coming soon</p>
+                <p className="text-xs text-gray-400 mt-1">Common questions and answers will be available here</p>
               </div>
             </div>
           </div>
@@ -1022,7 +862,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="flex">
-        {/* ✅ Left Sidebar Navigation */}
+        {/* Left Sidebar Navigation */}
         <div className="w-64 bg-white border-r border-gray-200 min-h-screen">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center space-x-3">
@@ -1035,6 +875,10 @@ export default function DashboardPage() {
               <div>
                 <h2 className="font-semibold text-gray-900">{userData.name}</h2>
                 <p className="text-sm text-gray-500 capitalize">{userRole}</p>
+                <div className="flex items-center mt-1 text-xs text-green-600">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                  <span>Online</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1073,7 +917,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ✅ Main Content Area */}
+        {/* Main Content Area */}
         <div className="flex-1 p-8">
           {renderTabContent()}
         </div>

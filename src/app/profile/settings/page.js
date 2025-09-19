@@ -1,4 +1,4 @@
-// src/app/profile/settings/page.js - NO AUTHENTICATION CHECKS
+// src/app/profile/settings/page.js - FIXED: Uses real backend API endpoints
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,17 +7,17 @@ import Link from 'next/link';
 export default function ProfileSettingsPage() {
   const router = useRouter();
   
-  // User state - always loaded from localStorage without validation
+  // User state
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Profile form state
+  // Profile form state - Removed photo field
   const [profileData, setProfileData] = useState({
     name: '',
     email: '',
-    phoneNo: '',
-    photo: null
+    phoneNo: ''
   });
   
   // Password form state
@@ -30,12 +30,6 @@ export default function ProfileSettingsPage() {
   // Phone verification always set to true
   const [phoneVerification, setPhoneVerification] = useState({
     isVerified: true,
-    isVerifying: false,
-    sessionId: null,
-    verificationStep: 'idle',
-    otp: '',
-    resendTimer: 0,
-    canResend: false,
     backendVerified: true
   });
 
@@ -46,65 +40,56 @@ export default function ProfileSettingsPage() {
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
   const [profileImage, setProfileImage] = useState('/default-avatar.png');
-  const [imagePreview, setImagePreview] = useState('/default-avatar.png');
 
-  // ✅ SIMPLIFIED: Just load data from localStorage - NO AUTH VALIDATION
+  // Fixed: Check authentication and load data
   useEffect(() => {
-    console.log('🔄 Loading profile data from localStorage...');
-    
-    if (typeof window !== 'undefined') {
-      // Get data from localStorage - no validation
-      const name = localStorage.getItem('user_name') || 'John Doe';
-      const email = localStorage.getItem('user_email') || 'user@example.com';
-      const phone = localStorage.getItem('user_phone') || '+91 9876543210';
-      const role = localStorage.getItem('user_role') || 'rider';
-      const image = localStorage.getItem('user_image') || '/default-avatar.png';
+    const checkAuthAndLoadData = async () => {
+      if (typeof window !== 'undefined') {
+        const isLoggedIn = localStorage.getItem('isUserLoggedIn') === 'true';
+        const role = localStorage.getItem('user_role');
+        const name = localStorage.getItem('user_name');
+        const email = localStorage.getItem('user_email');
+        const phone = localStorage.getItem('user_phone');
+        const image = localStorage.getItem('user_image');
+        const token = localStorage.getItem('access_token');
 
-      console.log('📋 Profile data loaded:', { name, email, phone, role });
+        if (isLoggedIn && role && name && token) {
+          setIsAuthenticated(true);
+          setUserRole(role);
 
-      // Set all state
-      setUser({
-        name,
-        email,
-        phoneNo: phone,
-        photo: image,
-        phoneVerified: true // Always true
-      });
+          // Set user data
+          setUser({
+            name: name || 'User',
+            email: email || '',
+            phoneNo: phone || '',
+            photo: image || '/default-avatar.png',
+            phoneVerified: true
+          });
 
-      setUserRole(role);
+          setProfileData({
+            name: name || '',
+            email: email || '',
+            phoneNo: phone || ''
+          });
 
-      setProfileData({
-        name,
-        email,
-        phoneNo: phone,
-        photo: null
-      });
+          setProfileImage(image || '/default-avatar.png');
 
-      setProfileImage(image);
-      setImagePreview(image);
-
-      // Always set phone as verified
-      setPhoneVerification(prev => ({
-        ...prev,
-        isVerified: true,
-        backendVerified: true
-      }));
-
-      // Set localStorage to verified if not already
-      localStorage.setItem('user_phone_verified', 'true');
-      localStorage.setItem('phone_verified_at', new Date().toISOString());
-      localStorage.setItem('verification_method', 'Auto-Verified');
-
-      console.log('✅ Profile setup complete - Phone verification set to TRUE');
-    }
-    
-    // Always finish loading after 1 second
-    setTimeout(() => {
+          // Always set phone as verified
+          setPhoneVerification({
+            isVerified: true,
+            backendVerified: true
+          });
+        } else {
+          router.push('/authentication/login');
+          return;
+        }
+      }
+      
       setIsLoading(false);
-      console.log('✅ Profile page loaded successfully');
-    }, 1000);
+    };
 
-  }, []); // Run only once on mount
+    checkAuthAndLoadData();
+  }, [router]);
 
   // Handle profile form changes
   const handleProfileChange = (e) => {
@@ -131,40 +116,6 @@ export default function ProfileSettingsPage() {
     // Clear errors
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
-    }
-  };
-
-  // Handle image upload
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Validate file type
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-      if (!allowedTypes.includes(file.type)) {
-        setErrors({ photo: 'Please select a valid image file (JPEG, PNG, GIF)' });
-        return;
-      }
-
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setErrors({ photo: 'Image size should be less than 5MB' });
-        return;
-      }
-
-      setProfileData(prev => ({
-        ...prev,
-        photo: file
-      }));
-
-      // Create preview
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target.result);
-      };
-      reader.readAsDataURL(file);
-
-      // Clear errors
-      setErrors(prev => ({ ...prev, photo: '' }));
     }
   };
 
@@ -218,7 +169,7 @@ export default function ProfileSettingsPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Submit profile update
+  // Updated: Submit profile update using real backend API
   const handleProfileSubmit = async (e) => {
     e.preventDefault();
     
@@ -229,60 +180,76 @@ export default function ProfileSettingsPage() {
     setSuccessMessage('');
 
     try {
-      console.log('🔄 Simulating profile update...');
-
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Update localStorage with new data
-      localStorage.setItem('user_name', profileData.name.trim());
-      localStorage.setItem('user_email', profileData.email.trim().toLowerCase());
-      if (profileData.phoneNo.trim()) {
-        localStorage.setItem('user_phone', profileData.phoneNo.trim());
+      const token = localStorage.getItem('access_token');
+      const role = localStorage.getItem('user_role');
+      
+      if (!token || !role) {
+        throw new Error('Authentication required');
       }
 
-      // Always set phone verification to true
-      localStorage.setItem('user_phone_verified', 'true');
-      localStorage.setItem('phone_verified_at', new Date().toISOString());
-      localStorage.setItem('verification_method', 'Auto-Verified');
-      
-      setPhoneVerification(prev => ({
-        ...prev,
-        isVerified: true,
-        backendVerified: true
-      }));
+      // Use real backend API endpoint
+      const endpoint = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/${role}/updateMe`;
 
-      // Update state
-      setUser(prev => ({
-        ...prev,
-        name: profileData.name.trim(),
-        email: profileData.email.trim().toLowerCase(),
-        phoneNo: profileData.phoneNo.trim(),
-        phoneVerified: true
-      }));
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: profileData.name.trim(),
+          email: profileData.email.trim().toLowerCase(),
+          phoneNo: profileData.phoneNo.trim()
+        })
+      });
 
-      // Trigger navbar refresh
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'user_name',
-        newValue: profileData.name.trim(),
-      }));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to update profile: ${response.status}`);
+      }
 
-      setSuccessMessage('🎉 Profile updated successfully!');
+      const data = await response.json();
 
-      // Reset form
-      setProfileData(prev => ({ ...prev, photo: null }));
+      if (data.status === 'success' && data.data && data.data.user) {
+        const updatedUser = data.data.user;
 
-      console.log('✅ Profile update simulated successfully');
+        // Update localStorage with new data
+        localStorage.setItem('user_name', updatedUser.name);
+        localStorage.setItem('user_email', updatedUser.email);
+        if (updatedUser.phoneNo) {
+          localStorage.setItem('user_phone', updatedUser.phoneNo);
+        }
+
+        // Update state
+        setUser(prev => ({
+          ...prev,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          phoneNo: updatedUser.phoneNo || prev.phoneNo,
+          phoneVerified: true
+        }));
+
+        // Trigger navbar refresh
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'user_name',
+          newValue: updatedUser.name,
+        }));
+
+        setSuccessMessage('🎉 Profile updated successfully!');
+
+      } else {
+        throw new Error('Invalid response format from server');
+      }
 
     } catch (err) {
-      console.error('❌ Profile update error:', err);
-      setErrors({ submit: 'Failed to update profile. Please try again.' });
+      setErrors({ submit: err.message || 'Failed to update profile. Please try again.' });
     } finally {
       setIsSubmittingProfile(false);
     }
   };
 
-  // Submit password update
+  // Updated: Submit password update using real backend API
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     
@@ -293,12 +260,39 @@ export default function ProfileSettingsPage() {
     setSuccessMessage('');
 
     try {
-      console.log('🔐 Simulating password update...');
+      const token = localStorage.getItem('access_token');
+      const role = localStorage.getItem('user_role');
+      
+      if (!token || !role) {
+        throw new Error('Authentication required');
+      }
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Use real backend API endpoint
+      const endpoint = `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/${role}/updatePassword`;
 
-      setSuccessMessage('🎉 Password updated successfully!');
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+          newPasswordConfirm: passwordData.newPasswordConfirm
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to update password: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Password update successful
+      setSuccessMessage('🎉 Password updated successfully! Please login again with your new password.');
 
       // Reset password form
       setPasswordData({
@@ -307,17 +301,20 @@ export default function ProfileSettingsPage() {
         newPasswordConfirm: ''
       });
 
-      console.log('✅ Password update simulated successfully');
+      // Optionally redirect to login after password change
+      setTimeout(() => {
+        localStorage.clear();
+        router.push('/authentication/login?message=password_updated');
+      }, 3000);
 
     } catch (err) {
-      console.error('❌ Password update error:', err);
-      setErrors({ submit: 'Failed to update password. Please try again.' });
+      setErrors({ submit: err.message || 'Failed to update password. Please try again.' });
     } finally {
       setIsSubmittingPassword(false);
     }
   };
 
-  // Simple loading screen
+  // Loading screen
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -327,6 +324,11 @@ export default function ProfileSettingsPage() {
         </div>
       </div>
     );
+  }
+
+  // Not authenticated
+  if (!isAuthenticated) {
+    return null; // Will redirect
   }
 
   return (
@@ -416,43 +418,6 @@ export default function ProfileSettingsPage() {
                 <div>
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Update Profile Information</h3>
                   
-                  {/* Profile Image */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Profile Photo
-                    </label>
-                    <div className="flex items-center space-x-6">
-                      <img
-                        src={imagePreview}
-                        alt="Profile preview"
-                        className="h-20 w-20 rounded-full object-cover border-2 border-gray-300"
-                        onError={(e) => { e.target.src = '/default-avatar.png'; }}
-                      />
-                      <div>
-                        <input
-                          id="photo"
-                          name="photo"
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageChange}
-                          className="sr-only"
-                        />
-                        <label
-                          htmlFor="photo"
-                          className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                          Change Photo
-                        </label>
-                        <p className="mt-1 text-xs text-gray-500">
-                          JPG, PNG, GIF up to 5MB
-                        </p>
-                        {errors.photo && (
-                          <p className="mt-1 text-sm text-red-600">{errors.photo}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Name */}
                   <div>
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700">

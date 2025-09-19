@@ -50,7 +50,7 @@ export default function ForgotPasswordPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // 🔧 MAIN: Role-based forgot password handler
+  // Role-based forgot password handler
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -63,22 +63,15 @@ export default function ForgotPasswordPage() {
     }
 
     try {
-      console.log('🔑 Starting forgot password process for:', userType);
-      console.log('📧 Email:', email);
-
-      // 🔧 ROLE-BASED API ENDPOINTS - Note the typo "froget" as specified in your request
+      // Role-based API endpoints
       const endpoint = userType === 'rider' 
         ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/forgetPassword`
         : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/forgetPassword`;
-
-      console.log('📡 API Endpoint:', endpoint);
 
       // Prepare request payload
       const payload = {
         email: email.toLowerCase().trim()
       };
-
-      console.log('📦 Payload being sent:', payload);
 
       // Make API request
       const response = await fetch(endpoint, {
@@ -90,11 +83,7 @@ export default function ForgotPasswordPage() {
         body: JSON.stringify(payload),
       });
 
-      console.log('📨 Response status:', response.status);
-      console.log('📨 Response headers:', Object.fromEntries(response.headers.entries()));
-
       const data = await response.json();
-      console.log('📨 Response data:', data);
 
       // Handle different response status codes
       if (!response.ok) {
@@ -112,19 +101,13 @@ export default function ForgotPasswordPage() {
       }
 
       // Success handling
-      console.log('✅ Forgot password request successful!', data);
-      
       const userTypeCapitalized = userType.charAt(0).toUpperCase() + userType.slice(1);
       const message = data.message || `Password reset link sent successfully!`;
       
       setSuccessMessage(`🎉 ${message}`);
       setIsSubmitted(true);
 
-      console.log(`📧 Reset email sent to ${email} for ${userTypeCapitalized}`);
-
     } catch (err) {
-      console.error('❌ Forgot password error:', err);
-      
       let errorMessage = err.message;
       
       if (err.message.includes('fetch') || err.message.includes('NetworkError')) {
@@ -170,7 +153,7 @@ export default function ForgotPasswordPage() {
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-green-800">Email Sent Successfully!</h3>
                   <div className="mt-2 text-sm text-green-700">
-                    <p>We've sent password reset instructions to <strong>{email}</strong></p>
+                    <p>We've sent password reset instructions to <strong>{email}</strong> if not in the inbox please check the spam folder.</p>
                   </div>
                 </div>
               </div>

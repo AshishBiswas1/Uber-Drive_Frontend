@@ -20,7 +20,7 @@ export default function RideBookingForm() {
   const [locationMessage, setLocationMessage] = useState('');
   const [isGeocodingDrop, setIsGeocodingDrop] = useState(false);
   
-  // **🔒 PROTECTION FLAGS - Prevent coordinate overwriting**
+  // Protection flags - Prevent coordinate overwriting
   const [pickupCoordsLocked, setPickupCoordsLocked] = useState(false);
   const [dropCoordsLocked, setDropCoordsLocked] = useState(false);
 
@@ -79,7 +79,6 @@ export default function RideBookingForm() {
       return null;
       
     } catch (error) {
-      console.error(`Geocoding error for "${address}":`, error.message);
       return null;
     }
   };
@@ -182,7 +181,6 @@ export default function RideBookingForm() {
         lng: parseFloat(result.lon)
       }));
     } catch (error) {
-      console.error('Address search error:', error);
       return [];
     }
   };
@@ -206,7 +204,6 @@ export default function RideBookingForm() {
         const results = await searchAddress(query);
         setSearchResults(results);
       } catch (error) {
-        console.error('Search error:', error);
         setSearchResults([]);
       } finally {
         setIsSearching(false);
@@ -219,7 +216,7 @@ export default function RideBookingForm() {
         lat: result.lat,
         lng: result.lng
       });
-      setPickupCoordsLocked(true); // **🔒 LOCK PICKUP COORDINATES**
+      setPickupCoordsLocked(true); // Lock pickup coordinates
       setShowManualEntry(false);
       setSearchResults([]);
       setLocationMessage('✅ Address selected successfully!');
@@ -298,7 +295,7 @@ export default function RideBookingForm() {
     );
   };
 
-  // **🔒 GPS function - LOCKS coordinates immediately after fetching**
+  // GPS function - Locks coordinates immediately after fetching
   const getCurrentLocation = async () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -326,12 +323,10 @@ export default function RideBookingForm() {
 
       const { latitude, longitude } = position.coords;
       
-      // **🔒 IMMEDIATELY LOCK GPS COORDINATES**
+      // Immediately lock GPS coordinates
       const finalCoords = { lat: latitude, lng: longitude };
       setPickupCoords(finalCoords);
-      setPickupCoordsLocked(true); // **PREVENT ANY FUTURE CHANGES**
-      
-      console.log('🔒 GPS COORDINATES LOCKED:', finalCoords);
+      setPickupCoordsLocked(true); // Prevent any future changes
       
       // Get address name
       try {
@@ -364,7 +359,7 @@ export default function RideBookingForm() {
     }
   };
 
-  // **🔒 MANUAL DROP LOCATION GEOCODING - Only when user clicks button**
+  // Manual drop location geocoding - Only when user clicks button
   const handleDropLocationGeocode = async () => {
     if (!dropLocation || dropLocation.trim().length < 3) {
       alert('Please enter a valid drop location');
@@ -372,35 +367,27 @@ export default function RideBookingForm() {
     }
 
     if (dropCoordsLocked) {
-      console.log('🔒 Drop coordinates already locked, skipping geocoding');
       return;
     }
 
     setIsGeocodingDrop(true);
-    console.log('🔍 Manual geocoding for drop location:', dropLocation);
     
     try {
       const coords = await geocodeAddress(dropLocation);
       if (coords) {
         setDropCoords(coords);
-        setDropCoordsLocked(true); // **🔒 LOCK DROP COORDINATES**
-        console.log('✅ Drop location geocoded and locked:', coords);
+        setDropCoordsLocked(true); // Lock drop coordinates
       } else {
-        console.warn('❌ Drop location geocoding failed for:', dropLocation);
         alert('Could not find location. Please check spelling and try again.');
       }
     } catch (error) {
-      console.error('Drop geocoding error:', error);
       alert('Error finding location. Please try again.');
     } finally {
       setIsGeocodingDrop(false);
     }
   };
 
-  // **🚫 REMOVED ALL AUTOMATIC GEOCODING useEffect HOOKS**
-  // This prevents coordinates from being overwritten after initial fetch
-
-  // **🔒 ONLY KEEP DISTANCE CALCULATION**
+  // Only keep distance calculation
   useEffect(() => {
     calculateTotalDistance();
   }, [pickupCoords, dropCoords, stopCoords]);
@@ -426,9 +413,9 @@ export default function RideBookingForm() {
     setStops(newStops);
   };
 
-  // **🔧 Enhanced handleSelectCar with coordinate protection**
+  // Enhanced handleSelectCar with coordinate protection
   const handleSelectCar = async () => {
-    // **STEP 1: Basic validation**
+    // Step 1: Basic validation
     if (!pickupLocation || !dropLocation) {
       alert('Please enter both pickup and drop locations.');
       return;
@@ -439,7 +426,7 @@ export default function RideBookingForm() {
       return;
     }
 
-    // **STEP 2: Ensure drop location is geocoded**
+    // Step 2: Ensure drop location is geocoded
     if (!dropCoords) {
       alert('Please geocode your drop location by clicking "Find Location" button.');
       return;
@@ -453,7 +440,7 @@ export default function RideBookingForm() {
     try {
       const validStops = stops.filter(stop => stop && stop.trim() !== '');
       
-      // **STEP 3: Create parameters with coordinate protection**
+      // Step 3: Create parameters with coordinate protection
       const params = {
         pickup: pickupLocation,
         drop: dropLocation,
@@ -466,27 +453,16 @@ export default function RideBookingForm() {
         totalDuration: totalDuration || '0'
       };
 
-      console.group('🔒 COORDINATE PROTECTION - NAVIGATION DEBUG');
-      console.log('🔒 PROTECTED COORDINATES:');
-      console.log('  Pickup Locked:', pickupCoordsLocked);
-      console.log('  Drop Locked:', dropCoordsLocked);
-      console.log('  Final Pickup Coords:', pickupCoords);
-      console.log('  Final Drop Coords:', dropCoords);
-      console.table(params);
-      console.groupEnd();
-      
       const searchParams = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
         searchParams.append(key, value);
       });
       
       const url = `/select-car?${searchParams.toString()}`;
-      console.log('🚗 Navigating with protected coordinates:', url);
       
       router.push(url);
       
     } catch (error) {
-      console.error('❌ Navigation error:', error);
       alert('Error processing your request. Please try again.');
     }
   };
@@ -666,7 +642,7 @@ export default function RideBookingForm() {
         className="btn btn-primary w-full"
         disabled={!pickupLocation || !dropLocation || !pickupCoords || !dropCoords || totalDistance === 'Error'}
       >
-        Select Car
+        Select Routes
       </button>
 
       {/* Protection Status */}

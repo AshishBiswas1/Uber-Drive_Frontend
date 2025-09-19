@@ -67,7 +67,6 @@ class GoogleMapsLoader {
             
             this.isLoaded = true;
             this.isLoading = false;
-            console.log('✅ Google Maps loaded with modern bootstrap loader');
             resolve();
           } else {
             throw new Error('Google Maps bootstrap failed');

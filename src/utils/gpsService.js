@@ -15,7 +15,6 @@ class GPSService {
   }
 
   clearCache() {
-    console.log('🧹 GPS cache cleared');
     this.geocodeCache.clear();
   }
 
@@ -28,17 +27,15 @@ class GPSService {
     return 'Area-level';
   }
 
-  // ✅ FIXED: Initialize Google Maps with proper timeout and fallback
+  // Fixed: Initialize Google Maps with proper timeout and fallback
   async initGoogleMaps() {
     // If already initialized, return immediately
     if (this.googleMapsReady && window.google && window.google.maps) {
-      console.log('✅ Google Maps already ready');
       return true;
     }
 
     // If initialization is already in progress, wait for it
     if (this.initializationPromise) {
-      console.log('⏳ Google Maps initialization in progress, waiting...');
       return await this.initializationPromise;
     }
 
@@ -49,7 +46,6 @@ class GPSService {
 
   async _performGoogleMapsInit() {
     if (typeof window === 'undefined') {
-      console.warn('⚠️ Window not available, skipping Google Maps init');
       return false;
     }
 
@@ -58,30 +54,24 @@ class GPSService {
       if (window.google && window.google.maps) {
         this.googleMapsReady = true;
         this._initializeServices();
-        console.log('✅ Google Maps already loaded');
         return true;
       }
 
       const googleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
       if (!googleKey) {
-        console.error('❌ Google Maps API key not found');
         return false;
       }
-
-      console.log('🚀 Loading Google Maps API...');
 
       // Create promise with timeout
       const loadPromise = new Promise((resolve, reject) => {
         // Set timeout first
         const timeout = setTimeout(() => {
-          console.warn('⚠️ Google Maps loading timeout (10s), continuing anyway...');
           resolve(false); // Don't reject, just resolve with false
         }, 10000);
 
         // Check if script already exists
         const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`);
         if (existingScript) {
-          console.log('🔄 Google Maps script already exists, waiting for load...');
           clearTimeout(timeout);
           
           // Check periodically if Google Maps is ready
@@ -112,13 +102,11 @@ class GPSService {
         // Global callback function
         window.initGoogleMapsCallback = () => {
           clearTimeout(timeout);
-          console.log('✅ Google Maps API loaded via callback');
           resolve(true);
         };
 
         script.onload = () => {
           clearTimeout(timeout);
-          console.log('✅ Google Maps script loaded');
           // Give it a moment to initialize
           setTimeout(() => {
             if (window.google && window.google.maps) {
@@ -131,7 +119,6 @@ class GPSService {
 
         script.onerror = () => {
           clearTimeout(timeout);
-          console.error('❌ Google Maps script failed to load');
           resolve(false); // Don't reject, continue without Google Maps
         };
 
@@ -143,15 +130,12 @@ class GPSService {
       if (success && window.google && window.google.maps) {
         this.googleMapsReady = true;
         this._initializeServices();
-        console.log('✅ Google Maps initialization successful');
         return true;
       } else {
-        console.warn('⚠️ Google Maps initialization failed or timed out - continuing without');
         return false;
       }
 
     } catch (error) {
-      console.error('❌ Google Maps initialization error:', error);
       return false;
     } finally {
       // Clean up
@@ -169,33 +153,28 @@ class GPSService {
         this.placesService = new window.google.maps.places.PlacesService(
           document.createElement('div')
         );
-        console.log('✅ Google Maps services initialized');
       }
     } catch (error) {
-      console.error('❌ Error initializing Google Maps services:', error);
+      // Error initializing Google Maps services handled silently
     }
   }
 
-  // ✅ FIXED: Enhanced start watching with proper error handling
+  // Fixed: Enhanced start watching with proper error handling
   startWatching(callback, options = {}) {
     if (typeof window === 'undefined' || !navigator.geolocation) {
-      console.error('❌ Geolocation not supported');
       if (callback) {
         try {
           callback(null, new Error('Geolocation not supported'));
         } catch (callbackError) {
-          console.error('❌ Error in callback:', callbackError);
+          // Error in callback handled silently
         }
       }
       return false;
     }
 
     if (this.isWatching) {
-      console.log('📍 GPS watching already active');
       return true;
     }
-
-    console.log('🚀 Starting GPS watching...');
     
     this.onLocationUpdate = callback;
     
@@ -209,12 +188,11 @@ class GPSService {
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
         if (!position || !position.coords) {
-          console.warn('⚠️ GPS: Received invalid position object');
           if (this.onLocationUpdate) {
             try {
               this.onLocationUpdate(null, new Error('Invalid position data'));
             } catch (callbackError) {
-              console.error('❌ Error in GPS callback:', callbackError);
+              // Error in GPS callback handled silently
             }
           }
           return;
@@ -226,12 +204,11 @@ class GPSService {
             typeof coords.longitude !== 'number' ||
             isNaN(coords.latitude) || 
             isNaN(coords.longitude)) {
-          console.warn('⚠️ GPS: Invalid coordinates received:', coords);
           if (this.onLocationUpdate) {
             try {
               this.onLocationUpdate(null, new Error('Invalid coordinates'));
             } catch (callbackError) {
-              console.error('❌ Error in GPS callback:', callbackError);
+              // Error in GPS callback handled silently
             }
           }
           return;
@@ -245,24 +222,21 @@ class GPSService {
         };
         
         this.lastKnownPosition = location;
-        console.log(`📍 GPS Update: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)} (±${Math.round(location.accuracy || 0)}m)`);
         
         if (this.onLocationUpdate) {
           try {
             this.onLocationUpdate(location, null);
           } catch (callbackError) {
-            console.error('❌ Error in GPS callback:', callbackError);
+            // Error in GPS callback handled silently
           }
         }
       },
       (error) => {
-        console.error('❌ GPS Error:', error.message);
-        
         if (this.onLocationUpdate) {
           try {
             this.onLocationUpdate(null, error);
           } catch (callbackError) {
-            console.error('❌ Error in GPS error callback:', callbackError);
+            // Error in GPS error callback handled silently
           }
         }
       },
@@ -279,7 +253,6 @@ class GPSService {
       this.watchId = null;
       this.isWatching = false;
       this.onLocationUpdate = null;
-      console.log('🛑 GPS watching stopped');
     }
   }
 
@@ -321,11 +294,9 @@ class GPSService {
           };
           
           this.lastKnownPosition = location;
-          console.log(`📍 Current Position: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)} (±${Math.round(location.accuracy || 0)}m)`);
           resolve(location);
         },
         (error) => {
-          console.error('❌ Get Position Error:', error.message);
           reject(error);
         },
         defaultOptions
@@ -341,7 +312,6 @@ class GPSService {
     const cacheKey = `${query}_${biasLocation ? `${biasLocation[0]}_${biasLocation[1]}` : 'none'}`;
     
     if (this.geocodeCache.has(cacheKey)) {
-      console.log('📋 Using cached result for:', query);
       return this.geocodeCache.get(cacheKey);
     }
 
@@ -357,7 +327,7 @@ class GPSService {
             return results;
           }
         } catch (error) {
-          console.warn('⚠️ Google Geocoding failed:', error.message);
+          // Google Geocoding failed, try fallback
         }
       }
 
@@ -371,7 +341,6 @@ class GPSService {
       throw new Error('No results found');
 
     } catch (error) {
-      console.error('❌ Address search failed:', error.message);
       throw error;
     }
   }
@@ -400,7 +369,6 @@ class GPSService {
             source: 'google'
           }));
           
-          console.log(`✅ Google found ${formattedResults.length} results for: ${query}`);
           resolve(formattedResults);
         } else {
           reject(new Error(`Google Geocoding failed: ${status}`));
@@ -436,11 +404,9 @@ class GPSService {
         source: 'nominatim'
       }));
 
-      console.log(`✅ Nominatim found ${results.length} results for: ${query}`);
       return results;
 
     } catch (error) {
-      console.error('❌ Nominatim geocoding failed:', error);
       throw error;
     }
   }
@@ -460,7 +426,6 @@ class GPSService {
     this.directionsService = null;
     this.placesService = null;
     this.initializationPromise = null;
-    console.log('🧹 GPS Service cleaned up');
   }
 }
 

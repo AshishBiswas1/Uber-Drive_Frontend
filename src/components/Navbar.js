@@ -1,4 +1,4 @@
-// src/components/Navbar.js - FIXED PROFILE SETTINGS PATH
+// src/components/Navbar.js - WITH FAVICON LOGO
 'use client';
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
@@ -45,13 +45,11 @@ export default function Navbar() {
       const decoded = JSON.parse(atob(paddedPayload));
       
       if (decoded.exp && decoded.exp < Date.now() / 1000) {
-        console.log('JWT token expired');
         return null;
       }
       
       return decoded;
     } catch (error) {
-      console.error('Error decoding JWT:', error);
       return null;
     }
   }, []);
@@ -99,30 +97,22 @@ export default function Navbar() {
     setErrorMessage(`${requiredRoleText} Access Required`);
     setErrorDetails(`You're currently logged in as a ${currentRoleText}. This section is exclusively for ${requiredRoleText}s. Please sign up as a ${requiredRoleText} or switch to your ${requiredRoleText} account to access these features.`);
     setShowRoleError(true);
-    
-    console.log(`🚫 Access denied: Required ${requiredRole}, Current ${currentRole || 'guest'}`);
   }, []);
 
   // Main auth check function
   const checkAuth = useCallback(() => {
     if (isChecking) {
-      console.log('⚠️ Auth check already in progress, skipping...');
       return;
     }
 
     setIsChecking(true);
     
     try {
-      console.log('🔍 Checking authentication...');
-      
       const jwtToken = getCookieValue('jwt');
       const hasJWT = !!jwtToken;
       
-      console.log('JWT Cookie found:', hasJWT);
-      
       if (hasJWT) {
         const decodedToken = decodeJWT(jwtToken);
-        console.log('Decoded JWT payload:', decodedToken);
         
         if (decodedToken) {
           const storedUserData = typeof window !== 'undefined' ? {
@@ -131,8 +121,6 @@ export default function Navbar() {
             image: localStorage.getItem('user_image'),
             email: localStorage.getItem('user_email')
           } : {};
-          
-          console.log('📦 Raw stored user data:', storedUserData);
           
           const role = storedUserData.role || 'rider';
           const rawUserName = storedUserData.name;
@@ -145,25 +133,15 @@ export default function Navbar() {
             name: formattedUserName, 
             image: userImage 
           });
-          
-          console.log('✅ User authenticated:', { 
-            jwtId: decodedToken.id,
-            role, 
-            name: formattedUserName, 
-            image: userImage 
-          });
         } else {
-          console.log('❌ Invalid or expired JWT token');
           clearUserData();
         }
       } else {
-        console.log('❌ No JWT cookie found');
         if (isAuthenticated) {
           clearUserData();
         }
       }
     } catch (error) {
-      console.error('❌ Error in checkAuth:', error);
       clearUserData();
     } finally {
       setIsChecking(false);
@@ -172,8 +150,14 @@ export default function Navbar() {
 
   // Image error handling
   const handleImageError = (e) => {
-    console.log('Image failed to load, using default avatar');
     e.target.src = '/default-avatar.png';
+  };
+
+  // Favicon/logo error handling
+  const handleLogoError = (e) => {
+    // If favicon fails to load, fallback to the R text logo
+    e.target.style.display = 'none';
+    e.target.nextElementSibling.style.display = 'flex';
   };
 
   // Initial auth check and setup intervals
@@ -181,13 +165,11 @@ export default function Navbar() {
     checkAuth();
     
     const interval = setInterval(() => {
-      console.log('🔄 Periodic auth check...');
       checkAuth();
     }, 60000);
     
     const handleStorageChange = (e) => {
       if (e.key === 'user_role' || e.key === 'user_name' || e.key === 'user_image') {
-        console.log('📦 Storage changed, rechecking auth...');
         setTimeout(checkAuth, 100);
       }
     };
@@ -210,51 +192,35 @@ export default function Navbar() {
 
   // Role-based navigation with error popups
   const handleNavigation = (path) => {
-    console.log(`🧭 Navigation attempt to: ${path}`);
-    console.log(`🎭 Current auth state: isAuthenticated=${isAuthenticated}, userRole=${userRole}`);
-
     // Check for role-specific pages
     if (path === '/rider') {
       if (!isAuthenticated) {
-        console.log('🚫 Not authenticated, redirecting to login');
         router.push('/authentication/login');
         return;
       }
       
       if (userRole !== 'rider') {
-        console.log(`🚫 Access denied: Need rider role, current role: ${userRole}`);
         showRoleErrorPopup('rider', userRole);
         return;
       }
-      
-      console.log('✅ Rider access granted');
     } else if (path === '/driver') {
       if (!isAuthenticated) {
-        console.log('🚫 Not authenticated, redirecting to login');
         router.push('/authentication/login');
         return;
       }
       
       if (userRole !== 'driver') {
-        console.log(`🚫 Access denied: Need driver role, current role: ${userRole}`);
         showRoleErrorPopup('driver', userRole);
         return;
       }
-      
-      console.log('✅ Driver access granted');
     }
     
-    console.log(`✅ Navigation approved to: ${path}`);
     router.push(path);
   };
 
   // Enhanced logout function
   const handleLogout = () => {
-    console.log('🚪 Starting comprehensive logout process...');
-    
     try {
-      console.log('🗑️ Removing JWT cookie...');
-      
       document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
       document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Strict;';
       document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; domain=localhost;';
@@ -262,10 +228,7 @@ export default function Navbar() {
       if (window.location.hostname !== 'localhost') {
         document.cookie = `jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; domain=${window.location.hostname};`;
       }
-      
-      console.log('✅ JWT cookie removal attempted');
 
-      console.log('🧹 Clearing localStorage...');
       if (typeof window !== 'undefined') {
         localStorage.removeItem('user_role');
         localStorage.removeItem('user_name');
@@ -278,23 +241,17 @@ export default function Navbar() {
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('token_expires');
         localStorage.removeItem('session_id');
-        
-        console.log('✅ localStorage cleared');
       }
 
-      console.log('🧹 Clearing sessionStorage...');
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem('jwt');
         sessionStorage.removeItem('user_data');
         sessionStorage.removeItem('auth_status');
-        console.log('✅ sessionStorage cleared');
       }
 
-      console.log('🔄 Updating component state...');
       clearUserData();
       setShowUserMenu(false);
       setIsMobileMenuOpen(false);
-      console.log('✅ Component state updated');
 
       setTimeout(() => {
         if (typeof window !== 'undefined') {
@@ -304,12 +261,8 @@ export default function Navbar() {
           }, 100);
         }
       }, 100);
-
-      console.log('✅ Logout process completed');
       
     } catch (error) {
-      console.error('❌ Error during logout:', error);
-      
       if (typeof window !== 'undefined') {
         window.location.href = '/';
       }
@@ -336,10 +289,23 @@ export default function Navbar() {
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            {/* Logo */}
+            {/* Logo with Favicon */}
             <Link href="/" className="flex items-center space-x-2">
-              <div className="bg-blue-600 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg">
-                R
+              {/* Favicon Image Logo */}
+              <div className="relative w-8 h-8">
+                <img
+                  src="/assets/favicon.png"
+                  alt="RideFlex Pro Logo"
+                  className="w-8 h-8 rounded-lg object-contain"
+                  onError={handleLogoError}
+                />
+                {/* Fallback R Logo (hidden by default) */}
+                <div 
+                  className="absolute inset-0 bg-blue-600 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg"
+                  style={{ display: 'none' }}
+                >
+                  R
+                </div>
               </div>
               <span className="font-bold text-xl text-gray-900">RideFlex Pro</span>
             </Link>
@@ -419,7 +385,7 @@ export default function Navbar() {
                         </div>
                       </div>
                       
-                      {/* ✅ FIXED: Correct profile settings path */}
+                      {/* Fixed: Correct profile settings path */}
                       <button
                         onClick={() => {
                           router.push('/profile/settings');
@@ -549,7 +515,7 @@ export default function Navbar() {
                       </div>
                     </div>
                     
-                    {/* ✅ FIXED: Mobile profile settings path */}
+                    {/* Fixed: Mobile profile settings path */}
                     <button
                       onClick={() => {
                         router.push('/profile/settings');

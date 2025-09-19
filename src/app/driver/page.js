@@ -13,7 +13,7 @@ const GoogleMap = dynamic(() => import('../../components/Map'), {
 // Self-contained GPS service
 const gpsUtils = {
   clearCache() {
-    console.log('🧹 GPS cache cleared');
+    // GPS cache cleared silently
   },
   
   getAccuracyStatus(accuracy) {
@@ -49,7 +49,6 @@ const driverService = {
     for (const getToken of tokenSources) {
       const token = getToken();
       if (token && token !== 'null' && token !== 'undefined') {
-        console.log('🔑 Found auth token from source:', getToken.name || 'cookie');
         return token;
       }
     }
@@ -84,15 +83,11 @@ const driverService = {
     const userRole = localStorage.getItem('user_role');
     const userId = localStorage.getItem('user_id');
     
-    console.log('🔍 Checking driver permissions:', { userRole, userId: userId ? 'present' : 'missing' });
-    
     if (userRole !== 'driver') {
-      console.warn('⚠️ User role is not "driver":', userRole);
       return false;
     }
     
     if (!userId) {
-      console.warn('⚠️ Missing user_id in localStorage');
       return false;
     }
     
@@ -101,8 +96,6 @@ const driverService = {
 
   async getDriverStatus() {
     try {
-      console.log('🔍 Fetching current driver status from backend...');
-      
       if (!this.checkDriverPermissions()) {
         throw new Error('PERMISSION_DENIED: User must be a driver to check status');
       }
@@ -125,25 +118,20 @@ const driverService = {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('❌ Failed to fetch driver status:', errorData);
         throw new Error(`Failed to fetch status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('✅ Current driver status fetched:', data);
       
       return { success: true, status: data.status, data };
 
     } catch (error) {
-      console.error('❌ Error fetching driver status:', error);
       return { success: false, error: error.message };
     }
   },
 
   async setDriverStatus(isOnline) {
     try {
-      console.log(`🔄 Setting driver status to: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-      
       if (!this.checkDriverPermissions()) {
         throw new Error('PERMISSION_DENIED: User must be a driver to update status');
       }
@@ -180,17 +168,14 @@ const driverService = {
           errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
         }
 
-        console.error('❌ Driver status update failed:', errorData);
         throw new Error(`Status update failed: ${errorData.message || response.statusText}`);
       }
 
       const data = await response.json();
-      console.log('✅ Driver status updated successfully:', data);
       
       return { success: true, data };
 
     } catch (error) {
-      console.error('❌ Driver status update failed:', error);
       return { success: false, error: error.message };
     }
   },
@@ -239,12 +224,10 @@ const driverService = {
       }
 
       const data = await response.json();
-      console.log('✅ Location updated successfully');
       
       return { success: true, data };
 
     } catch (error) {
-      console.error('❌ Location update failed:', error);
       return { success: false, error: error.message };
     }
   },
@@ -280,7 +263,6 @@ const driverService = {
       }
 
       const data = await response.json();
-      console.log('🔍 Pending ride requests:', data);
       
       return { 
         success: true, 
@@ -288,15 +270,12 @@ const driverService = {
       };
 
     } catch (error) {
-      console.error('❌ Error checking ride requests:', error);
       return { success: false, error: error.message, requests: [] };
     }
   },
 
   async acceptRideRequest(tripId) {
     try {
-      console.log('✅ Accepting ride request:', tripId);
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
@@ -370,13 +349,10 @@ const driverService = {
       }
 
       const data = await response.json();
-      console.log('✅ Ride request accepted successfully');
       
       return { success: true, trip: data.data?.trip || data.trip };
 
     } catch (error) {
-      console.error('❌ Error accepting ride request:', error);
-      
       let userFriendlyMessage = error.message;
       
       if (error.message.includes('AUTHORIZATION_DENIED')) {
@@ -401,8 +377,6 @@ const driverService = {
 
   async rejectRideRequest(tripId, reason = 'Driver declined') {
     try {
-      console.log('❌ Rejecting ride request:', tripId);
-      
       const token = this.getAuthToken();
       if (!token) {
         throw new Error('AUTH_TOKEN_MISSING: No authentication token found');
@@ -435,18 +409,16 @@ const driverService = {
       }
 
       const data = await response.json();
-      console.log('✅ Ride request rejected successfully:', data);
       
       return { success: true, trip: data.data?.trip || data.trip };
 
     } catch (error) {
-      console.error('❌ Error rejecting ride request:', error);
       return { success: false, error: error.message };
     }
   }
 };
 
-// ✨ ENHANCED: Trip Route Overview Component (shows when driver arrives)
+// Trip Route Overview Component (shows when driver arrives)
 function TripRouteOverviewCard({ trip, driverLocation, onStartTrip, onCompleteTrip }) {
   const [overviewTimer, setOverviewTimer] = useState(0);
 
@@ -589,7 +561,7 @@ function TripRouteOverviewCard({ trip, driverLocation, onStartTrip, onCompleteTr
 
       {/* Trip Control Actions */}
       <div className="space-y-3">
-        {/* ✅ FIXED: Check for both frontend and backend status values */}
+        {/* Check for both frontend and backend status values */}
         {(trip?.status === 'arrived' || trip?.status === 'trip_arrived') ? (
           <button
             onClick={onStartTrip}
@@ -649,7 +621,7 @@ function TripRouteOverviewCard({ trip, driverLocation, onStartTrip, onCompleteTr
   );
 }
 
-// ✨ ENHANCED: Active Trip Component with Navigation Stages and Backend Status Support
+// Active Trip Component with Navigation Stages and Backend Status Support
 function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }) {
   const [tripTimer, setTripTimer] = useState(0);
 
@@ -675,7 +647,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // ✅ FIXED: Check for both frontend and backend status values
+  // Check for both frontend and backend status values
   if (trip?.status === 'arrived' || trip?.status === 'trip_arrived') {
     return (
       <TripRouteOverviewCard
@@ -687,7 +659,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
     );
   }
 
-  // ✅ ENHANCED: Handle backend status values in getStatusColor
+  // Handle backend status values in getStatusColor
   const getStatusColor = () => {
     const normalizedStatus = trip?.status?.toLowerCase();
     switch (normalizedStatus) {
@@ -695,14 +667,14 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
       case 'trip_accepted':
         return 'bg-blue-50 border-blue-200 text-blue-800';
       case 'started':
-      case 'trip_started':  // ✅ FIXED: Handle backend status
+      case 'trip_started':  // Handle backend status
         return 'bg-purple-50 border-purple-200 text-purple-800';
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800';
     }
   };
 
-  // ✅ ENHANCED: Handle backend status values in getStatusMessage
+  // Handle backend status values in getStatusMessage
   const getStatusMessage = () => {
     const normalizedStatus = trip?.status?.toLowerCase();
     switch (normalizedStatus) {
@@ -710,7 +682,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
       case 'trip_accepted':
         return '🚗 Navigate to pickup location';
       case 'started':
-      case 'trip_started':  // ✅ FIXED: Handle backend status
+      case 'trip_started':  // Handle backend status
         return '🎯 Trip in progress - navigate to destination';
       case 'arrived':
       case 'trip_arrived':
@@ -720,7 +692,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
     }
   };
 
-  // ✅ ENHANCED: Handle backend status values in getNavigationInfo  
+  // Handle backend status values in getNavigationInfo  
   const getNavigationInfo = () => {
     const normalizedStatus = trip?.status?.toLowerCase();
     switch (normalizedStatus) {
@@ -733,7 +705,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
           label: 'Navigate to'
         };
       case 'started':
-      case 'trip_started':  // ✅ FIXED: Handle backend status
+      case 'trip_started':  // Handle backend status
         return {
           destination: trip?.dropoffLocation?.address,
           icon: '🎯',
@@ -758,7 +730,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
     }
   };
 
-  // ✅ ENHANCED: Handle backend status values in getNextAction
+  // Handle backend status values in getNextAction
   const getNextAction = () => {
     const normalizedStatus = trip?.status?.toLowerCase();
     switch (normalizedStatus) {
@@ -766,7 +738,7 @@ function ActiveTripCard({ trip, driverLocation, onCompleteTrip, onUpdateStatus }
       case 'trip_accepted':
         return { label: 'Mark as Arrived', action: () => onUpdateStatus('arrived') };
       case 'started':
-      case 'trip_started':  // ✅ FIXED: Handle backend status
+      case 'trip_started':  // Handle backend status
         return { label: 'Complete Trip', action: onCompleteTrip };
       case 'arrived':
       case 'trip_arrived':
@@ -1048,7 +1020,7 @@ function OnlineOfflineToggle({ isOnline, onToggle, disabled, isUpdating }) {
   );
 }
 
-// ✅ ENHANCED: Driver Page Content with Dynamic Navigation
+// Driver Page Content with Dynamic Navigation
 function DriverPageContent() {
   // All state variables
   const [isOnline, setIsOnline] = useState(false);
@@ -1087,16 +1059,12 @@ function DriverPageContent() {
           return;
         }
 
-        console.log('🚀 Loading initial driver status from backend...');
-        
         const statusResult = await driverService.getDriverStatus();
         
         if (statusResult.success) {
           const backendStatus = statusResult.status === 'online';
-          console.log(`✅ Backend driver status: ${statusResult.status}`);
           setIsOnline(backendStatus);
         } else {
-          console.warn('⚠️ Failed to load driver status, defaulting to offline');
           const savedStatus = localStorage.getItem('driverOnlineStatus');
           if (savedStatus) {
             setIsOnline(JSON.parse(savedStatus));
@@ -1115,7 +1083,6 @@ function DriverPageContent() {
     if (!coordinates || !isOnline) return;
 
     if (authError) {
-      console.log('🚫 Skipping location update due to auth error:', authError);
       return;
     }
 
@@ -1126,7 +1093,6 @@ function DriverPageContent() {
       );
       
       if (distance < 0.0001 && coordinates.accuracy > 50) {
-        console.log('🔄 Location unchanged, skipping backend update');
         return;
       }
     }
@@ -1150,7 +1116,6 @@ function DriverPageContent() {
         timestamp: Date.now()
       };
 
-      console.log('✅ Location successfully sent to backend');
     } else {
       setBackendStatus(prev => ({
         connected: false,
@@ -1159,7 +1124,6 @@ function DriverPageContent() {
       }));
 
       if (backendStatus.retryCount < 3) {
-        console.log(`🔄 Retrying location update (attempt ${backendStatus.retryCount + 1}/3)`);
         setTimeout(() => sendLocationToBackend(coordinates), 2000);
       }
     }
@@ -1168,12 +1132,9 @@ function DriverPageContent() {
   // Start/Stop Location Updates Every 10 Seconds
   const startLocationUpdates = useCallback(() => {
     if (locationUpdateInterval.current || authError || !isOnline) return;
-
-    console.log('🚀 Starting 10-second location updates to backend');
     
     locationUpdateInterval.current = setInterval(() => {
       if (driverLocation && isOnline && !authError) {
-        console.log('⏰ 10-second interval: Sending location to backend');
         sendLocationToBackend({
           lat: driverLocation.lat,
           lng: driverLocation.lng,
@@ -1186,7 +1147,6 @@ function DriverPageContent() {
 
   const stopLocationUpdates = useCallback(() => {
     if (locationUpdateInterval.current) {
-      console.log('🛑 Stopping location updates to backend');
       clearInterval(locationUpdateInterval.current);
       locationUpdateInterval.current = null;
     }
@@ -1196,18 +1156,15 @@ function DriverPageContent() {
   const startRideRequestPolling = useCallback(() => {
     if (rideRequestInterval.current || !isOnline || authError || activeTrip) return;
 
-    console.log('🔄 Starting ride request polling...');
     shouldPollRequests.current = true;
     
     const checkRequests = async () => {
       if (!shouldPollRequests.current || activeTrip) {
-        console.log('🛑 Skipping ride request check - have active trip or stopped');
         return;
       }
 
       const result = await driverService.checkForRideRequests();
       if (result.success && result.requests.length > 0 && !activeTrip) {
-        console.log(`📨 Found ${result.requests.length} pending ride requests`);
         setPendingRequests(result.requests);
       } else {
         setPendingRequests([]);
@@ -1219,7 +1176,6 @@ function DriverPageContent() {
   }, [isOnline, authError, activeTrip]);
 
   const stopRideRequestPolling = useCallback(() => {
-    console.log('🛑 Stopping ride request polling');
     shouldPollRequests.current = false;
     
     if (rideRequestInterval.current) {
@@ -1234,8 +1190,6 @@ function DriverPageContent() {
     setIsProcessingRequest(true);
     
     try {
-      console.log('🚀 Processing ride acceptance for trip:', tripId);
-      
       if (!driverService.checkDriverPermissions()) {
         setAuthError('Please login as a driver to accept rides');
         return;
@@ -1244,28 +1198,22 @@ function DriverPageContent() {
       const result = await driverService.acceptRideRequest(tripId);
       
       if (result.success) {
-        console.log('✅ Ride request accepted successfully');
-        
         setActiveTrip(result.trip);
         stopRideRequestPolling();
         setPendingRequests([]);
         
-        console.log('🛑 Stopped ride request polling - trip accepted');
         setAuthError(null);
         
       } else {
-        console.error('❌ Failed to accept ride request:', result.error);
-        
         if (result.userMessage) {
           setAuthError(result.userMessage);
         }
         
         if (result.error.includes('AUTHORIZATION') || result.error.includes('403')) {
-          console.warn('🔑 Authorization issue detected, may need re-authentication');
+          // Authorization issue detected, may need re-authentication
         }
       }
     } catch (error) {
-      console.error('❌ Error accepting ride request:', error);
       setAuthError('Failed to accept ride. Please try again or re-login.');
     } finally {
       setIsProcessingRequest(false);
@@ -1280,13 +1228,12 @@ function DriverPageContent() {
       const result = await driverService.rejectRideRequest(tripId, 'Driver declined');
       
       if (result.success) {
-        console.log('✅ Ride request rejected successfully');
         setPendingRequests(prev => prev.filter(req => req._id !== tripId));
       } else {
-        console.error('❌ Failed to reject ride request:', result.error);
+        // Error rejecting ride request
       }
     } catch (error) {
-      console.error('❌ Error rejecting ride request:', error);
+      // Error rejecting ride request
     } finally {
       setIsProcessingRequest(false);
     }
@@ -1314,10 +1261,9 @@ function DriverPageContent() {
           updatedTrip.startedAt = new Date().toISOString();
         }
         setActiveTrip(updatedTrip);
-        console.log(`✅ Trip status updated to: ${newStatus}`);
       }
     } catch (error) {
-      console.error('❌ Error updating trip status:', error);
+      // Error updating trip status
     }
   };
 
@@ -1333,11 +1279,10 @@ function DriverPageContent() {
       
       if (isOnline && !authError) {
         startRideRequestPolling();
-        console.log('🔄 Restarted ride request polling - trip completed');
       }
       
     } catch (error) {
-      console.error('❌ Error completing trip:', error);
+      // Error completing trip
     }
   };
 
@@ -1385,8 +1330,6 @@ function DriverPageContent() {
     
     const getEnhancedGPS = async () => {
       try {
-        console.log('🚀 Driver GPS acquisition starting...');
-        
         gpsUtils.clearCache();
         
         let bestPosition = null;
@@ -1394,8 +1337,6 @@ function DriverPageContent() {
         
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
-            console.log(`🛰️ Driver GPS Attempt ${attempt}/2`);
-            
             const position = await new Promise((resolve, reject) => {
               const timeout = setTimeout(() => {
                 reject(new Error(`GPS_TIMEOUT_ATTEMPT_${attempt}`));
@@ -1418,16 +1359,12 @@ function DriverPageContent() {
               );
             });
 
-            console.log(`📡 Driver Attempt ${attempt}: ±${position.coords.accuracy}m at ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`);
-
             if (position.coords.accuracy < bestAccuracy) {
               bestPosition = position;
               bestAccuracy = position.coords.accuracy;
-              console.log(`✅ Driver: New best accuracy: ±${bestAccuracy}m`);
             }
 
             if (bestAccuracy <= 20) {
-              console.log(`🎯 Driver: Excellent accuracy achieved early: ±${bestAccuracy}m`);
               break;
             }
 
@@ -1436,7 +1373,6 @@ function DriverPageContent() {
             }
 
           } catch (attemptError) {
-            console.warn(`❌ Driver GPS Attempt ${attempt} failed:`, attemptError.message);
             if (attempt === 2 && !bestPosition) {
               throw attemptError;
             }
@@ -1456,17 +1392,9 @@ function DriverPageContent() {
         setDriverLocation(driverCoords);
         setLocationAccuracy(bestPosition.coords.accuracy);
         
-        console.log('🚗📍 DRIVER GPS COORDINATES:');
-        console.log(`   Latitude:  ${driverCoords.lat}`);
-        console.log(`   Longitude: ${driverCoords.lng}`);
-        console.log(`   Accuracy:  ±${Math.round(bestPosition.coords.accuracy)}m`);
-
         await sendLocationToBackend(driverCoords);
-        
-        console.log(`✅ Driver GPS success: ±${Math.round(bestPosition.coords.accuracy)}m`);
 
       } catch (error) {
-        console.error('❌ Driver GPS failed:', error);
         setAuthError('GPS Error: Unable to get your location. Please check device settings.');
       } finally {
         setIsGettingLocation(false);
@@ -1496,12 +1424,10 @@ function DriverPageContent() {
               
               setDriverLocation(updatedLocation);
               setLocationAccuracy(newAccuracy);
-              
-              console.log(`📍 Driver location updated: ${newLat.toFixed(6)}, ${newLng.toFixed(6)} (±${Math.round(newAccuracy)}m)`);
             }
           },
           (error) => {
-            console.warn('📡 Watch GPS error:', error.message);
+            // Watch GPS error handled silently
           },
           {
             enableHighAccuracy: false,
@@ -1533,7 +1459,6 @@ function DriverPageContent() {
     
     try {
       const newOnlineStatus = !isOnline;
-      console.log(`🔄 Toggling driver status to: ${newOnlineStatus ? 'ONLINE' : 'OFFLINE'}`);
       
       const result = await driverService.setDriverStatus(newOnlineStatus);
       
@@ -1550,29 +1475,20 @@ function DriverPageContent() {
           setActiveTrip(null);
         }
         
-        console.log(`✅ Driver status successfully updated to: ${newOnlineStatus ? 'ONLINE' : 'OFFLINE'}`);
       } else {
-        console.error('❌ Failed to update driver status:', result.error);
+        // Failed to update driver status
       }
       
     } catch (error) {
-      console.error('❌ Failed to update driver status:', error);
+      // Failed to update driver status
     } finally {
       setIsUpdatingStatus(false);
     }
   };
 
-  // ✅ FIXED: Get navigation coordinates based on trip status (with backend status mapping)  
+  // Get navigation coordinates based on trip status (with backend status mapping)  
   const getNavigationCoordinates = () => {
     if (!activeTrip) return null;
-
-    console.log('🗺️ Getting navigation coordinates for trip status:', activeTrip.status);
-    console.log('🚗 Driver location:', driverLocation);
-    console.log('📍 Trip locations:', {
-      pickup: activeTrip.pickupLocation?.coordinates,
-      dropoff: activeTrip.dropoffLocation?.coordinates,
-      stops: activeTrip.stops?.length || 0
-    });
 
     // Extract coordinates safely
     const pickup = activeTrip.pickupLocation?.coordinates 
@@ -1588,13 +1504,12 @@ function DriverPageContent() {
       lng: stop.coordinates[0]
     })) || [];
 
-    // ✅ FIXED: Handle both frontend and backend status values
+    // Handle both frontend and backend status values
     const normalizedStatus = activeTrip.status?.toLowerCase();
     
     switch (normalizedStatus) {
       case 'accepted':
       case 'trip_accepted':
-        console.log('📍 Navigation: Driver → Pickup Location');
         return {
           pickup: driverLocation,
           drop: pickup,
@@ -1606,7 +1521,6 @@ function DriverPageContent() {
         
       case 'arrived':
       case 'trip_arrived':
-        console.log('🗺️ Navigation: Complete Trip Route Overview');
         return {
           pickup: pickup,
           drop: dropoff,
@@ -1618,8 +1532,7 @@ function DriverPageContent() {
         };
         
       case 'started':
-      case 'trip_started':  // ✅ FIXED: Handle backend status
-        console.log('🎯 Navigation: Pickup → Destination (with stops)');
+      case 'trip_started':  // Handle backend status
         return {
           pickup: pickup,
           drop: dropoff,
@@ -1630,8 +1543,7 @@ function DriverPageContent() {
         };
         
       default:
-        console.log('❓ Unknown trip status, showing basic navigation:', activeTrip.status);
-        // ✅ FALLBACK: Show basic navigation even for unknown statuses
+        // Show basic navigation even for unknown statuses
         return {
           pickup: pickup || driverLocation,
           drop: dropoff,
@@ -1740,7 +1652,7 @@ function DriverPageContent() {
         </div>
       </div>
 
-      {/* ✅ ENHANCED: Map with dynamic route updates */}
+      {/* Map with dynamic route updates */}
       <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen lg:sticky lg:top-0">
         <GoogleMap 
           key={`driver-map-${driverLocation ? driverLocation.lat + driverLocation.lng : 'no-location'}-${activeTrip ? activeTrip.status : 'idle'}`}

@@ -31,23 +31,19 @@ export default function GoogleMap({
 
   const googleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
 
-  // ✅ FIXED: Enhanced Google Maps loading with timeout and error handling
+  // Fixed: Enhanced Google Maps loading with timeout and error handling
   const loadGoogleMapsAPI = useCallback(() => {
     if (typeof window === 'undefined') return Promise.reject('Window undefined');
     
     // Check if already loaded
     if (window.google && window.google.maps) {
-      console.log('✅ Google Maps already loaded');
       return Promise.resolve();
     }
 
     // Check if already loading
     if (window.googleMapsLoading) {
-      console.log('⏳ Google Maps loading in progress, waiting...');
       return window.googleMapsLoading;
     }
-
-    console.log('🚀 Loading Google Maps API...');
     
     // Create loading promise
     window.googleMapsLoading = new Promise((resolve, reject) => {
@@ -58,14 +54,12 @@ export default function GoogleMap({
       
       // Success callback
       script.onload = () => {
-        console.log('✅ Google Maps API loaded successfully');
         delete window.googleMapsLoading;
         resolve();
       };
       
       // Error callback
       script.onerror = () => {
-        console.error('❌ Failed to load Google Maps API');
         delete window.googleMapsLoading;
         reject(new Error('Failed to load Google Maps API'));
       };
@@ -73,7 +67,6 @@ export default function GoogleMap({
       // Timeout after 10 seconds
       setTimeout(() => {
         if (!window.google || !window.google.maps) {
-          console.error('❌ Google Maps API loading timeout');
           reject(new Error('Google Maps API loading timeout'));
         }
       }, 10000);
@@ -84,7 +77,7 @@ export default function GoogleMap({
     return window.googleMapsLoading;
   }, [googleKey]);
 
-  // ✅ FIXED: Load Google Maps API with proper error handling
+  // Fixed: Load Google Maps API with proper error handling
   useEffect(() => {
     if (!googleKey) {
       setInitError('Google Maps API key not found');
@@ -102,7 +95,6 @@ export default function GoogleMap({
       })
       .catch((error) => {
         if (isMounted) {
-          console.error('❌ Google Maps initialization failed:', error);
           setInitError(error.message);
         }
       });
@@ -112,13 +104,12 @@ export default function GoogleMap({
     };
   }, [googleKey, loadGoogleMapsAPI]);
 
-  // ✅ FIXED: Initialize map with proper cleanup and error handling
+  // Fixed: Initialize map with proper cleanup and error handling
   useEffect(() => {
     if (!isLoaded || !mapRef.current || mapInstance.current || initializationInProgress.current) {
       return;
     }
 
-    console.log('🗺️ Initializing Google Map...');
     initializationInProgress.current = true;
 
     try {
@@ -165,7 +156,6 @@ export default function GoogleMap({
         google.maps.event.removeListener(idleListener);
         setIsMapReady(true);
         initializationInProgress.current = false;
-        console.log('✅ Google Map initialized and ready');
       });
 
       // Timeout fallback
@@ -173,18 +163,16 @@ export default function GoogleMap({
         if (!isMapReady) {
           setIsMapReady(true);
           initializationInProgress.current = false;
-          console.log('✅ Google Map initialized (timeout fallback)');
         }
       }, 2000);
 
     } catch (error) {
-      console.error('❌ Map initialization error:', error);
       setInitError('Failed to initialize map');
       initializationInProgress.current = false;
     }
   }, [isLoaded, isInteractive, pickup, driverLocation, isMapReady]);
 
-  // ✅ FIXED: Clear existing markers with error handling
+  // Fixed: Clear existing markers with error handling
   const clearMarkers = useCallback(() => {
     try {
       markersRef.current.forEach(marker => {
@@ -194,11 +182,11 @@ export default function GoogleMap({
       });
       markersRef.current = [];
     } catch (error) {
-      console.error('❌ Error clearing markers:', error);
+      // Error clearing markers handled silently
     }
   }, []);
 
-  // ✅ FIXED: Clear all route renderers with error handling
+  // Fixed: Clear all route renderers with error handling
   const clearRoutes = useCallback(() => {
     try {
       routeRenderers.current.forEach(renderer => {
@@ -208,11 +196,11 @@ export default function GoogleMap({
       });
       routeRenderers.current = [];
     } catch (error) {
-      console.error('❌ Error clearing routes:', error);
+      // Error clearing routes handled silently
     }
   }, []);
 
-  // ✅ FIXED: Create custom marker icons with error handling
+  // Fixed: Create custom marker icons with error handling
   const createMarkerIcon = useCallback((type) => {
     try {
       const icons = {
@@ -251,16 +239,14 @@ export default function GoogleMap({
       };
       return icons[type] || icons['pickup'];
     } catch (error) {
-      console.error('❌ Error creating marker icon:', error);
       return null;
     }
   }, []);
 
-  // ✅ FIXED: Add markers to map with validation
+  // Fixed: Add markers to map with validation
   const addMarkers = useCallback(() => {
     if (!mapInstance.current || !isMapReady) return;
     
-    console.log('📍 Adding markers to map...');
     clearMarkers();
 
     try {
@@ -312,26 +298,23 @@ export default function GoogleMap({
         markersRef.current.push(marker);
       }
 
-      console.log(`✅ Added ${markersRef.current.length} markers to map`);
     } catch (error) {
-      console.error('❌ Error adding markers:', error);
+      // Error adding markers handled silently
     }
   }, [pickup, drop, stops, driverLocation, showDriverPin, isMapReady, clearMarkers, createMarkerIcon]);
 
-  // ✅ FIXED: Generate routes with proper error handling and cleanup
+  // Fixed: Generate routes with proper error handling and cleanup
   const generateRoutes = useCallback(async () => {
     if (!pickup || !drop || !directionsService.current || !isMapReady) {
       return;
     }
 
-    console.log('🛣️ Generating routes...');
     setRouteLoading(true);
     clearRoutes();
 
     try {
       if (showMultipleRoutes && routes.length > 0) {
         // Generate multiple routes
-        console.log(`🗺️ Generating ${routes.length} route options`);
         
         const routePromises = routes.map(async (routeOption, index) => {
           return new Promise((resolve) => {
@@ -371,7 +354,6 @@ export default function GoogleMap({
                 
                 resolve({ success: true, route: result.routes[0], index });
               } else {
-                console.warn(`⚠️ Route ${index + 1} failed:`, status);
                 resolve({ success: false, index });
               }
             });
@@ -439,18 +421,18 @@ export default function GoogleMap({
               duration: route.legs[0].duration.value
             });
           } else {
-            console.warn('⚠️ Single route generation failed:', status);
+            // Single route generation failed silently
           }
         });
       }
     } catch (error) {
-      console.error('❌ Route generation error:', error);
+      // Route generation error handled silently
     } finally {
       setRouteLoading(false);
     }
   }, [pickup, drop, stops, showMultipleRoutes, routes, selectedRoute, isMapReady, clearRoutes]);
 
-  // ✅ FIXED: Update markers when dependencies change
+  // Fixed: Update markers when dependencies change
   useEffect(() => {
     if (!isMapReady) return;
     
@@ -461,7 +443,7 @@ export default function GoogleMap({
     return () => clearTimeout(timeoutId);
   }, [isMapReady, addMarkers]);
 
-  // ✅ FIXED: Generate routes when dependencies change
+  // Fixed: Generate routes when dependencies change
   useEffect(() => {
     if (!isMapReady || !pickup || !drop) return;
     
@@ -472,7 +454,7 @@ export default function GoogleMap({
     return () => clearTimeout(timeoutId);
   }, [isMapReady, generateRoutes]);
 
-  // ✅ FIXED: Update route highlighting when selection changes
+  // Fixed: Update route highlighting when selection changes
   useEffect(() => {
     if (!showMultipleRoutes || routeRenderers.current.length === 0) return;
 
@@ -491,7 +473,7 @@ export default function GoogleMap({
     });
   }, [selectedRoute, showMultipleRoutes]);
 
-  // ✅ FIXED: Cleanup on unmount
+  // Fixed: Cleanup on unmount
   useEffect(() => {
     return () => {
       clearMarkers();

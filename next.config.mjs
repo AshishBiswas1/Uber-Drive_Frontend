@@ -12,11 +12,28 @@ const nextConfig = {
     }
   },
   
-  webpack: (config) => {
+  webpack: (config, { dev, isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       'mapbox-gl': 'maplibre-gl',
     };
+    
+    // ✅ FIXED: Only apply console removal in Webpack (not Turbopack)
+    if (!dev && !isServer) {
+      // Remove console logs in production build (Webpack only)
+      const TerserPlugin = require('terser-webpack-plugin');
+      config.optimization.minimizer.push(
+        new TerserPlugin({
+          terserOptions: {
+            compress: {
+              drop_console: true,
+              drop_debugger: true,
+            },
+          },
+        })
+      );
+    }
+    
     return config;
   },
   
@@ -45,12 +62,17 @@ const nextConfig = {
   // Disable source maps in production
   productionBrowserSourceMaps: false,
   
-  // ✅ HYDRATION FIX: Add rewrites for API calls
+  // ✅ HYDRATION FIX: Add rewrites for API calls and favicon
   async rewrites() {
     return [
       {
         source: '/api/:path*',
         destination: `${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'}/api/:path*`
+      },
+      // ✅ FAVICON: Custom favicon rewrite
+      {
+        source: '/favicon.ico',
+        destination: '/assets/favicon.png', // Change this path to match your favicon location
       }
     ];
   },
@@ -83,17 +105,26 @@ const nextConfig = {
             value: 'no-cache, no-store, must-revalidate'
           }
         ]
+      },
+      // ✅ FAVICON: Add proper caching headers for favicon
+      {
+        source: '/favicon.ico',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400'
+          },
+          {
+            key: 'Content-Type',
+            value: 'image/x-icon'
+          }
+        ]
       }
     ];
   },
   
-  // ✅ HYDRATION FIX: Compiler options
-  compiler: {
-    // Remove console logs in production
-    removeConsole: process.env.NODE_ENV === 'production' ? {
-      exclude: ['error']
-    } : false,
-  },
+  // ✅ REMOVED: compiler.removeConsole (not supported by Turbopack)
+  // Console removal is now handled in the webpack function above
   
   // ✅ HYDRATION FIX: Optimize for payment pages
   transpilePackages: ['@stripe/stripe-js'],

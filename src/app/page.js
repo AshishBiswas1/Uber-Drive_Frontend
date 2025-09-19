@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-
 function CheckItem({ children }) {
   return (
     <li className="flex items-start gap-3">
@@ -53,7 +52,7 @@ function PriceCard({ title, price, cta, features, highlight = false, onNavigate 
   );
 }
 
-// 🚨 NEW: Custom Error Popup Component
+// New: Custom Error Popup Component
 function ErrorPopup({ isOpen, onClose, message, title }) {
   if (!isOpen) return null;
 
@@ -115,14 +114,14 @@ function ErrorPopup({ isOpen, onClose, message, title }) {
 export default function OverviewPage() {
   const router = useRouter();
   
-  // 🔧 NEW: State for error popup
+  // New: State for error popup
   const [errorPopup, setErrorPopup] = useState({
     isOpen: false,
     title: '',
     message: ''
   });
 
-  // 🔧 ENHANCED: Check if logged in and get user data
+  // Enhanced: Check if logged in and get user data
   const getAuthData = () => {
     if (typeof window !== "undefined") {
       // Check JWT cookie first
@@ -142,15 +141,12 @@ export default function OverviewPage() {
     return { isLoggedIn: false, userRole: null, userName: 'User' };
   };
 
-  // 🔧 ENHANCED: Handle navigation with role validation
+  // Enhanced: Handle navigation with role validation
   const handleNavigation = (path) => {
     const authData = getAuthData();
-    
-    console.log('🔍 Navigation attempt:', { path, authData });
 
     // If not logged in, redirect to login
     if (!authData.isLoggedIn) {
-      console.log('❌ Not logged in, redirecting to login');
       router.push('/authentication/login');
       return;
     }
@@ -159,9 +155,7 @@ export default function OverviewPage() {
     const targetRole = path.includes('/rider') ? 'rider' : 'driver';
     const currentRole = authData.userRole;
 
-    console.log('🎯 Role check:', { targetRole, currentRole });
-
-    // 🚨 ROLE VALIDATION: Check if user has correct role
+    // Role validation: Check if user has correct role
     if (currentRole && currentRole !== targetRole) {
       const errorMessages = {
         rider: {
@@ -174,7 +168,6 @@ export default function OverviewPage() {
         }
       };
 
-      console.log('❌ Role mismatch, showing error popup');
       setErrorPopup({
         isOpen: true,
         title: errorMessages[targetRole].title,
@@ -184,11 +177,10 @@ export default function OverviewPage() {
     }
 
     // If role matches or no specific role restrictions, proceed
-    console.log('✅ Role validation passed, navigating to:', path);
     router.push(path);
   };
 
-  // 🔧 NEW: Close error popup
+  // New: Close error popup
   const closeErrorPopup = () => {
     setErrorPopup({
       isOpen: false,
@@ -391,7 +383,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* 🚨 NEW: Error Popup Modal */}
+      {/* New: Error Popup Modal */}
       <ErrorPopup
         isOpen={errorPopup.isOpen}
         onClose={closeErrorPopup}

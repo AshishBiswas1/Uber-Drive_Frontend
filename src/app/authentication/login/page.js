@@ -35,14 +35,10 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      console.log('🔐 Login attempt:', { email: formData.email, role });
-      
       // Determine the API endpoint based on role
       const endpoint = role === 'rider' 
         ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/login`
         : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/login`;
-
-      console.log('📡 API Endpoint:', endpoint);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -62,9 +58,8 @@ export default function LoginPage() {
       }
 
       const data = await response.json();
-      console.log('✅ Login response:', data);
 
-      // 🔧 ENHANCED: Store comprehensive user data in localStorage
+      // Store comprehensive user data in localStorage
       if (typeof window !== 'undefined') {
         // Clear any existing data first
         localStorage.removeItem('user_role');
@@ -82,10 +77,9 @@ export default function LoginPage() {
         // Store token if provided in response
         if (data.token) {
           localStorage.setItem('access_token', data.token);
-          console.log('🎫 Token stored:', data.token.substring(0, 50) + '...');
         }
 
-        // 🎯 CRITICAL: Store user data from API response
+        // Store user data from API response
         if (data.data && data.data.user) {
           const user = data.data.user;
           
@@ -104,30 +98,17 @@ export default function LoginPage() {
               : `/images/users/${user.photo}`;
           }
           localStorage.setItem('user_image', userImage);
-          
-          console.log('💾 User data stored:', {
-            name: user.name,
-            email: user.email,
-            role: role,
-            image: userImage,
-            id: user._id
-          });
         }
 
-        // 🔄 TRIGGER NAVBAR REFRESH: Dispatch storage event to update navbar
+        // Trigger navbar refresh: Dispatch storage event to update navbar
         window.dispatchEvent(new StorageEvent('storage', {
           key: 'user_role',
           newValue: role,
           oldValue: null
         }));
-
-        console.log('📢 Storage event dispatched to refresh navbar');
       }
 
-      // 🎉 SUCCESS MESSAGE
-      console.log(`✅ ${role.charAt(0).toUpperCase() + role.slice(1)} login successful!`);
-
-      // 🔄 REDIRECT: Navigate based on role
+      // Redirect: Navigate based on role
       setTimeout(() => {
         if (role === 'rider') {
           router.push('/'); // rider home
@@ -137,7 +118,6 @@ export default function LoginPage() {
       }, 100); // Small delay to ensure storage events are processed
 
     } catch (err) {
-      console.error('❌ Login error:', err);
       setErrorMsg(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setIsSubmitting(false);
@@ -249,7 +229,7 @@ export default function LoginPage() {
                 </label>
               </div>
               
-              {/* 🔧 UPDATED: Forgot Password Link with Role Parameter */}
+              {/* Forgot Password Link with Role Parameter */}
               <div className="text-sm">
                 <Link 
                   href={`/authentication/forgot-password?type=${role}`} 
@@ -287,7 +267,7 @@ export default function LoginPage() {
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     Signing in...
                   </>
