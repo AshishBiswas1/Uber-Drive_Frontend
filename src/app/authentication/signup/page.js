@@ -187,7 +187,7 @@ export default function SignupPage() {
 
       const userTypeCapitalized = formData.userType.charAt(0).toUpperCase() + formData.userType.slice(1);
       
-      // Success: Direct redirect to landing page
+
       setSuccessMessage(`🎉 ${userTypeCapitalized} account created successfully! Redirecting to login...`);
       
       setTimeout(() => {
