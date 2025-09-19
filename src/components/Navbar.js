@@ -358,7 +358,7 @@ export default function Navbar() {
               {/* Favicon Image Logo */}
               <div className="relative w-8 h-8">
                 <img
-                  src="/favicon.jpg"
+                  src="/assets/favicon.png"
                   alt="RideFlex Pro Logo"
                   className="w-8 h-8 rounded-lg object-contain"
                   onError={handleLogoError}

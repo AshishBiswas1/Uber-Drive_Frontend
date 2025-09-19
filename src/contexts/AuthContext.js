@@ -8,14 +8,17 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // ✅ FIXED: Correct API URL construction
+  const API_BASE_URL = 'https://uber-drive-clone-backend.onrender.com';
+
   // ✅ Check authentication status on app load
   useEffect(() => {
     const checkAuthStatus = async () => {
       setIsLoading(true);
       
       try {
-        // Make request to backend to verify JWT cookie
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APIBASE}/api/auth/me`, {
+        // ✅ FIXED: Use proper URL construction
+        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -32,15 +35,6 @@ export const AuthProvider = ({ children }) => {
             setUser(userData);
             setIsAuthenticated(true);
             
-            // Update localStorage for navbar sync
-            localStorage.setItem('isUserLoggedIn', 'true');
-            localStorage.setItem('userrole', userData.userType || userData.role);
-            localStorage.setItem('username', userData.name);
-            localStorage.setItem('useremail', userData.email);
-            if (userData.photo) {
-              localStorage.setItem('userimage', userData.photo);
-            }
-            
             console.log('✅ Authentication restored from cookie');
           } else {
             throw new Error('Invalid user data');
@@ -50,7 +44,7 @@ export const AuthProvider = ({ children }) => {
           clearAuth();
         }
       } catch (error) {
-        console.log('⚠️ No valid authentication found');
+        console.log('⚠️ No valid authentication found:', error.message);
         clearAuth();
       } finally {
         setIsLoading(false);
@@ -64,22 +58,13 @@ export const AuthProvider = ({ children }) => {
     setUser(userData);
     setIsAuthenticated(true);
     
-    // Update localStorage for navbar
-    localStorage.setItem('isUserLoggedIn', 'true');
-    localStorage.setItem('userrole', userData.userType || userData.role);
-    localStorage.setItem('username', userData.name);
-    localStorage.setItem('useremail', userData.email);
-    if (userData.photo) {
-      localStorage.setItem('userimage', userData.photo);
-    }
-    
     console.log('✅ User logged in successfully');
   };
 
   const logout = async () => {
     try {
-      // Call logout endpoint to clear cookie
-      await fetch(`${process.env.NEXT_PUBLIC_APIBASE}/api/auth/logout`, {
+      // ✅ FIXED: Use proper URL construction
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -93,13 +78,6 @@ export const AuthProvider = ({ children }) => {
   const clearAuth = () => {
     setUser(null);
     setIsAuthenticated(false);
-    
-    // Clear localStorage
-    localStorage.removeItem('isUserLoggedIn');
-    localStorage.removeItem('userrole');
-    localStorage.removeItem('username');
-    localStorage.removeItem('useremail');
-    localStorage.removeItem('userimage');
     
     console.log('🔓 User logged out');
   };
