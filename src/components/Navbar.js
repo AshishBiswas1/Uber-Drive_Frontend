@@ -1,11 +1,14 @@
-// src/components/Navbar.js - WITH FAVICON LOGO
+// src/components/Navbar.js - WITH AUTHCONTEXT INTEGRATION & FAVICON LOGO
 'use client';
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Navbar() {
   const router = useRouter();
+  const { user: contextUser, isAuthenticated: contextAuth, isLoading: contextLoading, login: contextLogin, logout: contextLogout } = useAuth();
+  
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -99,15 +102,51 @@ export default function Navbar() {
     setShowRoleError(true);
   }, []);
 
-  // Main auth check function
-  const checkAuth = useCallback(() => {
-    if (isChecking) {
-      return;
+  // ✅ ENHANCED: Sync with AuthContext
+  const syncWithContext = useCallback(() => {
+    if (contextAuth && contextUser) {
+      // Use data from AuthContext
+      const formattedName = formatUserName(contextUser.name);
+      const role = contextUser.userType || contextUser.role || 'rider';
+      
+      setIsAuthenticated(true);
+      setUserRole(role);
+      setUserData({ 
+        name: formattedName, 
+        image: contextUser.photo || '/default-avatar.png' 
+      });
+
+      // Update localStorage to keep in sync
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('user_role', role);
+        localStorage.setItem('user_name', contextUser.name);
+        localStorage.setItem('user_email', contextUser.email);
+        if (contextUser.photo) {
+          localStorage.setItem('user_image', contextUser.photo);
+        }
+        localStorage.setItem('isUserLoggedIn', 'true');
+      }
+    } else if (!contextLoading && !contextAuth) {
+      // Context says not authenticated, clear everything
+      clearUserData();
     }
+  }, [contextAuth, contextUser, contextLoading, formatUserName, clearUserData]);
+
+  // Main auth check function - Enhanced with Context priority
+  const checkAuth = useCallback(() => {
+    if (isChecking || contextLoading) return;
 
     setIsChecking(true);
     
     try {
+      // Priority 1: Use AuthContext if available and authenticated
+      if (contextAuth && contextUser) {
+        syncWithContext();
+        setIsChecking(false);
+        return;
+      }
+
+      // Priority 2: Fallback to manual cookie/localStorage check
       const jwtToken = getCookieValue('jwt');
       const hasJWT = !!jwtToken;
       
@@ -146,7 +185,7 @@ export default function Navbar() {
     } finally {
       setIsChecking(false);
     }
-  }, [getCookieValue, decodeJWT, clearUserData, isAuthenticated, isChecking, formatUserName]);
+  }, [getCookieValue, decodeJWT, clearUserData, isAuthenticated, isChecking, formatUserName, contextAuth, contextUser, contextLoading, syncWithContext]);
 
   // Image error handling
   const handleImageError = (e) => {
@@ -160,12 +199,26 @@ export default function Navbar() {
     e.target.nextElementSibling.style.display = 'flex';
   };
 
-  // Initial auth check and setup intervals
+  // ✅ ENHANCED: Initial auth check with context sync
   useEffect(() => {
-    checkAuth();
-    
-    const interval = setInterval(() => {
+    if (!contextLoading) {
       checkAuth();
+    }
+  }, [checkAuth, contextLoading]);
+
+  // Sync when context changes
+  useEffect(() => {
+    if (!contextLoading) {
+      syncWithContext();
+    }
+  }, [contextAuth, contextUser, contextLoading, syncWithContext]);
+
+  // Setup intervals and listeners
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!contextLoading) {
+        checkAuth();
+      }
     }, 60000);
     
     const handleStorageChange = (e) => {
@@ -184,7 +237,7 @@ export default function Navbar() {
         window.removeEventListener('storage', handleStorageChange);
       }
     };
-  }, [checkAuth]);
+  }, [checkAuth, contextLoading]);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
@@ -192,25 +245,29 @@ export default function Navbar() {
 
   // Role-based navigation with error popups
   const handleNavigation = (path) => {
+    // Use context authentication status if available
+    const authStatus = contextAuth !== undefined ? contextAuth : isAuthenticated;
+    const currentRole = contextUser?.userType || contextUser?.role || userRole;
+
     // Check for role-specific pages
     if (path === '/rider') {
-      if (!isAuthenticated) {
+      if (!authStatus) {
         router.push('/authentication/login');
         return;
       }
       
-      if (userRole !== 'rider') {
-        showRoleErrorPopup('rider', userRole);
+      if (currentRole !== 'rider') {
+        showRoleErrorPopup('rider', currentRole);
         return;
       }
     } else if (path === '/driver') {
-      if (!isAuthenticated) {
+      if (!authStatus) {
         router.push('/authentication/login');
         return;
       }
       
-      if (userRole !== 'driver') {
-        showRoleErrorPopup('driver', userRole);
+      if (currentRole !== 'driver') {
+        showRoleErrorPopup('driver', currentRole);
         return;
       }
     }
@@ -218,17 +275,18 @@ export default function Navbar() {
     router.push(path);
   };
 
-  // Enhanced logout function
-  const handleLogout = () => {
+  // ✅ ENHANCED: Enhanced logout with context integration
+  const handleLogout = async () => {
     try {
-      document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-      document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Strict;';
-      document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; domain=localhost;';
-      
-      if (window.location.hostname !== 'localhost') {
-        document.cookie = `jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; domain=${window.location.hostname};`;
+      // Use context logout if available
+      if (contextLogout) {
+        await contextLogout();
       }
 
+      // Manual cleanup as fallback
+      document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      document.cookie = 'jwt=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=None; Secure;';
+      
       if (typeof window !== 'undefined') {
         localStorage.removeItem('user_role');
         localStorage.removeItem('user_name');
@@ -284,6 +342,12 @@ export default function Navbar() {
     { name: 'Contact', href: '/contact' },
   ];
 
+  // ✅ ENHANCED: Use context data with fallback
+  const displayAuth = contextAuth !== undefined ? contextAuth : isAuthenticated;
+  const displayUser = contextUser || userData;
+  const displayRole = contextUser?.userType || contextUser?.role || userRole;
+  const isLoading = contextLoading || isChecking;
+
   return (
     <>
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
@@ -294,7 +358,7 @@ export default function Navbar() {
               {/* Favicon Image Logo */}
               <div className="relative w-8 h-8">
                 <img
-                  src="/assets/favicon.png"
+                  src="/favicon.jpg"
                   alt="RideFlex Pro Logo"
                   className="w-8 h-8 rounded-lg object-contain"
                   onError={handleLogoError}
@@ -325,7 +389,13 @@ export default function Navbar() {
 
             {/* Desktop Right Section */}
             <div className="hidden md:flex items-center space-x-4">
-              {isAuthenticated ? (
+              {isLoading ? (
+                // Loading state
+                <div className="animate-pulse flex space-x-2">
+                  <div className="w-8 h-8 bg-gray-300 rounded-full"></div>
+                  <div className="w-20 h-8 bg-gray-300 rounded"></div>
+                </div>
+              ) : displayAuth ? (
                 <div className="relative">
                   <button
                     onClick={() => setShowUserMenu(!showUserMenu)}
@@ -336,8 +406,8 @@ export default function Navbar() {
                       <div className="relative">
                         <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100">
                           <img
-                            src={userData.image || '/default-avatar.png'}
-                            alt={`${userData.name}'s avatar`}
+                            src={displayUser.image || displayUser.photo || '/default-avatar.png'}
+                            alt={`${displayUser.name || 'User'}'s avatar`}
                             className="w-full h-full object-cover"
                             onError={handleImageError}
                           />
@@ -345,11 +415,11 @@ export default function Navbar() {
                         <div className="absolute -bottom-0 -right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
                       </div>
                       <div className="flex flex-col items-start">
-                        <span className="text-sm font-medium text-gray-900" title={userData.name}>
-                          {userData.name || 'Guest'}
+                        <span className="text-sm font-medium text-gray-900" title={displayUser.name || 'User'}>
+                          {formatUserName(displayUser.name) || 'User'}
                         </span>
-                        {userRole && (
-                          <span className="text-xs text-gray-500 capitalize">{userRole}</span>
+                        {displayRole && (
+                          <span className="text-xs text-gray-500 capitalize">{displayRole}</span>
                         )}
                       </div>
                       <svg 
@@ -370,22 +440,21 @@ export default function Navbar() {
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100">
                             <img
-                              src={userData.image || '/default-avatar.png'}
-                              alt={`${userData.name}'s avatar`}
+                              src={displayUser.image || displayUser.photo || '/default-avatar.png'}
+                              alt={`${displayUser.name || 'User'}'s avatar`}
                               className="w-full h-full object-cover"
                               onError={handleImageError}
                             />
                           </div>
                           <div>
-                            <p className="font-medium text-gray-900" title={userData.name}>
-                              {userData.name || 'Guest User'}
+                            <p className="font-medium text-gray-900" title={displayUser.name || 'User'}>
+                              {displayUser.name || 'Guest User'}
                             </p>
-                            <p className="text-sm text-gray-500 capitalize">{userRole || 'Member'}</p>
+                            <p className="text-sm text-gray-500 capitalize">{displayRole || 'Member'}</p>
                           </div>
                         </div>
                       </div>
                       
-                      {/* Fixed: Correct profile settings path */}
                       <button
                         onClick={() => {
                           router.push('/profile/settings');
@@ -491,15 +560,15 @@ export default function Navbar() {
               
               {/* Mobile Auth Section */}
               <div className="pt-4 space-y-2 border-t border-gray-200">
-                {isAuthenticated ? (
+                {displayAuth ? (
                   <>
                     <div className="px-4 py-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className="relative">
                           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100">
                             <img
-                              src={userData.image || '/default-avatar.png'}
-                              alt={`${userData.name}'s avatar`}
+                              src={displayUser.image || displayUser.photo || '/default-avatar.png'}
+                              alt={`${displayUser.name || 'User'}'s avatar`}
                               className="w-full h-full object-cover"
                               onError={handleImageError}
                             />
@@ -507,15 +576,14 @@ export default function Navbar() {
                           <div className="absolute -bottom-0 -right-0 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900" title={userData.name}>
-                            {userData.name || 'Guest User'}
+                          <p className="font-medium text-gray-900" title={displayUser.name || 'User'}>
+                            {displayUser.name || 'Guest User'}
                           </p>
-                          <p className="text-sm text-gray-500 capitalize">{userRole || 'Member'}</p>
+                          <p className="text-sm text-gray-500 capitalize">{displayRole || 'Member'}</p>
                         </div>
                       </div>
                     </div>
                     
-                    {/* Fixed: Mobile profile settings path */}
                     <button
                       onClick={() => {
                         router.push('/profile/settings');

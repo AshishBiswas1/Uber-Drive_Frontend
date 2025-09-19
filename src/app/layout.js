@@ -1,4 +1,5 @@
 // src/app/layout.js
+import { AuthProvider } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import "./globals.css";
 
@@ -20,8 +21,10 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="antialiased font-inter">
-        <Navbar />
-        <main>{children}</main>
+        <AuthProvider>
+          <Navbar />
+          <main>{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );
