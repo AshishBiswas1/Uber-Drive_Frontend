@@ -1,11 +1,6 @@
 // src/app/layout.js
-import { Inter, Roboto_Mono } from "next/font/google";
 import Navbar from "@/components/Navbar";
 import "./globals.css";
-
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const robotoMono = Roboto_Mono({ subsets: ["latin"], variable: "--font-roboto-mono" });
 
 export const metadata = {
   title: "RideFlex Pro",
@@ -14,8 +9,17 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${inter.variable} ${robotoMono.variable}`}>
-      <body className="antialiased">
+    <html lang="en">
+      <head>
+        {/* Safe font loading via CDN - won't timeout during build */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="antialiased font-inter">
         <Navbar />
         <main>{children}</main>
       </body>
