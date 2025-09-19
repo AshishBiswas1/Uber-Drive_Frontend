@@ -13,47 +13,34 @@ export const AuthProvider = ({ children }) => {
 
   // ✅ Check authentication status on app load
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      setIsLoading(true);
+  const checkAuthStatus = async () => {
+    setIsLoading(true);
+    
+    const url = `${API_BASE_URL}/api/auth/me`;
+    console.log('🔍 Making request to:', url); // Debug log
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
       
-      try {
-        // ✅ FIXED: Use proper URL construction
-        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include', // ✅ Include cookies
-        });
+      console.log('📡 Response status:', response.status); // Debug log
+      
+      // ... rest of the code
+    } catch (error) {
+      console.error('❌ Request failed:', error); // Debug log
+      clearAuth();
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'success' && data.data?.user) {
-            const userData = data.data.user;
-            
-            // Update state
-            setUser(userData);
-            setIsAuthenticated(true);
-            
-            console.log('✅ Authentication restored from cookie');
-          } else {
-            throw new Error('Invalid user data');
-          }
-        } else {
-          // No valid cookie or expired
-          clearAuth();
-        }
-      } catch (error) {
-        console.log('⚠️ No valid authentication found:', error.message);
-        clearAuth();
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAuthStatus();
-  }, []);
-
+  checkAuthStatus();
+}, []);
   const login = (userData, token) => {
     setUser(userData);
     setIsAuthenticated(true);
