@@ -369,10 +369,7 @@ const apiService = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
           'x-auth-token': token,
-          'x-access-token': token,
-          'Cache-Control': 'no-cache, no-store, must-revalidate', // Prevent caching
-          'Pragma': 'no-cache',
-          'Expires': '0'
+          'x-access-token': token
         },
         credentials: 'include'
       });

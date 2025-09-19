@@ -1,22 +1,30 @@
-// app/authentication/login/page.js - WITH FORGOT PASSWORD LINK
+// app/authentication/login/page.js - WITH BUILT-IN JWT COOKIE MANAGEMENT
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useAuth();
 
-  // role can be 'rider' or 'driver'
   const [role, setRole] = useState('rider');
-
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // ✅ Built-in Cookie Functions
+  const setJWTCookie = (token) => {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + (90 * 24 * 60 * 60 * 1000)); // 90 days
+    
+    document.cookie = `jwt=${token}; expires=${expires.toUTCString()}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`;
+    console.log('🍪 JWT cookie set for 90 days');
+  };
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -25,32 +33,32 @@ export default function LoginPage() {
     }));
   };
 
-  const handleRoleChange = (e) => {
-    setRole(e.target.value);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setIsSubmitting(true);
 
     try {
-      // Determine the API endpoint based on role
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://uber-drive-clone-backend.onrender.com';
+      
       const endpoint = role === 'rider' 
-        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/rider/login`
-        : `${process.env.NEXT_PUBLIC_API_BASE}/api/drive/driver/login`;
+        ? `${API_BASE}/api/drive/rider/login`
+        : `${API_BASE}/api/drive/driver/login`;
+
+      console.log('🔍 Making login request to:', endpoint);
 
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include', // This is important for cookies
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
         }),
       });
+
+      console.log('📡 Login response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -58,66 +66,73 @@ export default function LoginPage() {
       }
 
       const data = await response.json();
+      console.log('✅ Login successful:', data);
 
-      // Store comprehensive user data in localStorage
-      if (typeof window !== 'undefined') {
-        // Clear any existing data first
-        localStorage.removeItem('user_role');
-        localStorage.removeItem('user_name');
-        localStorage.removeItem('user_email');
-        localStorage.removeItem('user_image');
-        localStorage.removeItem('user_phone');
-        localStorage.removeItem('user_id');
-        localStorage.removeItem('access_token');
-
-        // Store auth status and role
-        localStorage.setItem('isUserLoggedIn', 'true');
-        localStorage.setItem('user_role', role);
+      // ✅ CRITICAL: Save JWT token to frontend cookie for 90 days
+      if (data.status === 'success' && data.data?.user && data.token) {
+        const userData = data.data.user;
         
-        // Store token if provided in response
-        if (data.token) {
-          localStorage.setItem('access_token', data.token);
-        }
+        // ✅ 1. Save JWT token in cookie for 90 days
+        setJWTCookie(data.token);
+        
+        // ✅ 2. Update AuthContext
+        login(userData, data.token);
 
-        // Store user data from API response
-        if (data.data && data.data.user) {
-          const user = data.data.user;
+        // ✅ 3. Update localStorage for compatibility
+        if (typeof window !== 'undefined') {
+          // Clear existing data
+          localStorage.removeItem('user_role');
+          localStorage.removeItem('user_name');
+          localStorage.removeItem('user_email');
+          localStorage.removeItem('user_image');
+          localStorage.removeItem('user_phone');
+          localStorage.removeItem('user_id');
+          localStorage.removeItem('access_token');
+
+          // Store new data
+          localStorage.setItem('isUserLoggedIn', 'true');
+          localStorage.setItem('user_role', role);
+          localStorage.setItem('access_token', data.token);
+          localStorage.setItem('user_name', userData.name || 'User');
+          localStorage.setItem('user_email', userData.email || '');
+          localStorage.setItem('user_phone', userData.phoneNo || '');
+          localStorage.setItem('user_id', userData._id || '');
           
-          // Store user profile data
-          localStorage.setItem('user_name', user.name || 'User');
-          localStorage.setItem('user_email', user.email || '');
-          localStorage.setItem('user_phone', user.phoneNo || '');
-          localStorage.setItem('user_id', user._id || '');
-          
-          // Handle user image/photo
-          let userImage = '/default-avatar.png'; // Default fallback
-          if (user.photo) {
-            // Assume photos are stored in a public images folder
-            userImage = user.photo === 'default-rider.jpg' || user.photo === 'default-driver.jpg' 
-              ? '/default-avatar.png' 
-              : `/images/users/${user.photo}`;
+          // ✅ Handle user image safely
+          let userImage = '/default-avatar.png';
+          if (userData.photo) {
+            const skipImages = ['default-rider.jpg', 'default-driver.jpg', 'default.png', 'avatar.png'];
+            if (!skipImages.includes(userData.photo)) {
+              if (userData.photo.startsWith('http')) {
+                userImage = userData.photo;
+              } else if (userData.photo.includes('/')) {
+                userImage = userData.photo;
+              } else {
+                userImage = `/images/users/${userData.photo}`;
+              }
+            }
           }
           localStorage.setItem('user_image', userImage);
+
+          // ✅ Trigger navbar refresh
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'user_role',
+            newValue: role,
+            oldValue: null
+          }));
         }
 
-        // Trigger navbar refresh: Dispatch storage event to update navbar
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: 'user_role',
-          newValue: role,
-          oldValue: null
-        }));
+        // ✅ Redirect after successful login
+        setTimeout(() => {
+          if (role === 'rider') {
+            router.push('/');
+          } else {
+            router.push('/driver');
+          }
+        }, 500);
       }
-
-      // Redirect: Navigate based on role
-      setTimeout(() => {
-        if (role === 'rider') {
-          router.push('/'); // rider home
-        } else {
-          router.push('/driver'); // driver home
-        }
-      }, 100); // Small delay to ensure storage events are processed
-
     } catch (err) {
+      console.error('❌ Login error:', err);
       setErrorMsg(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setIsSubmitting(false);
@@ -229,7 +244,6 @@ export default function LoginPage() {
                 </label>
               </div>
               
-              {/* Forgot Password Link with Role Parameter */}
               <div className="text-sm">
                 <Link 
                   href={`/authentication/forgot-password?type=${role}`} 
@@ -267,7 +281,7 @@ export default function LoginPage() {
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     Signing in...
                   </>
@@ -279,7 +293,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Development Helper */}
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
             Need an account?{' '}
@@ -288,10 +301,9 @@ export default function LoginPage() {
             </Link>
           </p>
           
-          {/* Debug info (remove in production) */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-2 text-xs text-gray-400">
-              Current role: {role} | Will redirect to: /authentication/forgot-password?type={role}
+              Current role: {role} | JWT will be saved for 90 days
             </div>
           )}
         </div>
